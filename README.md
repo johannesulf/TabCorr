@@ -31,7 +31,8 @@ from tabcorr import TabCorr
 # First, we tabulate the correlation functions in the halo catalog.
 rp_bins = np.logspace(-1, 1, 20)
 halocat = CachedHaloCatalog(simname='bolplanck')
-halotab = TabCorr.tabulate(halocat, wp, rp_bins, pi_max=40)
+halotab = TabCorr.tabulate(halocat, wp, rp_bins, pi_max=40,
+                           period=halocat.Lbox)
 
 # We can save the result for later use.
 halotab.write('bolplanck.hdf5')
@@ -80,9 +81,9 @@ projected correlation function:
 
 ### To-do list
 
-* Currently, TabCorr only works for autocorrelation functions. It should be
+* ~~Currently, TabCorr only works for autocorrelation functions. It should be
 straightforward to also include cross-correlation functions, particularly
-``delta_sigma``.
+``delta_sigma``.~~ Now implemented!
 * TabCorr works for HOD and dHOD models. Support for SHAM models should be
 easy to implement.
 * Add a function that checks that the model and the tabulated halo catalog

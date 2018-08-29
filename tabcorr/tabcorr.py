@@ -15,6 +15,7 @@ class TabCorr:
 
     @classmethod
     def tabulate(cls, halocat, tpcf, *tpcf_args,
+                 mode='auto',
                  Num_ptcl_requirement=sim_defaults.Num_ptcl_requirement,
                  cosmology=sim_defaults.default_cosmology,
                  prim_haloprop_key=model_defaults.prim_haloprop_key,
@@ -42,7 +43,11 @@ class TabCorr:
             passed through this function.
 
         *tpcf_args : tuple, optional
-                Positional arguments passed to the ``tpcf`` function.
+            Positional arguments passed to the ``tpcf`` function.
+
+        mode : string, optional
+            String describing whether an auto- ('auto') or a cross-correlation
+            ('cross') function is going to be tabulated.
 
         Num_ptcl_requirement : int, optional
             Requirement on the number of dark matter particles in the halo
@@ -151,8 +156,10 @@ class TabCorr:
             halotab.gal_type['n_h'] = np.tile(n_h, 2) / np.prod(halocat.Lbox)
 
         halotab.gal_type['gal_type'] = np.concatenate((
-            np.repeat('centrals'.encode('utf8'), len(halotab.gal_type) // 2),
-            np.repeat('satellites'.encode('utf8'), len(halotab.gal_type) // 2)))
+            np.repeat('centrals'.encode('utf8'),
+                      len(halotab.gal_type) // 2),
+            np.repeat('satellites'.encode('utf8'),
+                      len(halotab.gal_type) // 2)))
         halotab.gal_type['log_prim_haloprop_min'] = np.tile(
             log_prim_haloprop_bins[:-1], len(halotab.gal_type) //
             len(log_prim_haloprop_bins[:-1]))
@@ -211,23 +218,37 @@ class TabCorr:
             if verbose:
                 print("row %d/%d" % (i + 1, len(halotab.gal_type)))
 
-            for k in range(i, len(halotab.gal_type)):
-                if len(pos[i]) * len(pos[k]) > 0:
-                    x = tpcf(
-                        pos[i], *tpcf_args, period=halocat.Lbox,
-                        sample2=pos[k] if k != i else None,
-                        do_auto=(i == k), do_cross=(not i == k),
-                        **tpcf_kwargs)
+            if mode == 'auto':
+                for k in range(i, len(halotab.gal_type)):
+                    if len(pos[i]) * len(pos[k]) > 0:
+                        xi = tpcf(
+                            pos[i], *tpcf_args,
+                            sample2=pos[k] if k != i else None,
+                            do_auto=(i == k), do_cross=(not i == k),
+                            **tpcf_kwargs)
+                        if 'tpcf_matrix' not in locals():
+                            tpcf_matrix = np.zeros(
+                                (len(xi.ravel()), len(halotab.gal_type),
+                                 len(halotab.gal_type)))
+                            tpcf_shape = xi.shape
+                        tpcf_matrix[:, i, k] = xi.ravel()
+                        tpcf_matrix[:, k, i] = xi.ravel()
+
+            elif mode == 'cross':
+                if len(pos[i]) > 0:
+                    xi = tpcf(
+                        pos[i], *tpcf_args, **tpcf_kwargs)
+                    if tpcf.__name__ == 'delta_sigma':
+                        xi = xi[1]
                     if 'tpcf_matrix' not in locals():
                         tpcf_matrix = np.zeros(
-                            (len(x.ravel()), len(halotab.gal_type),
-                             len(halotab.gal_type)))
-                        tpcf_shape = x.shape
-                    tpcf_matrix[:, i, k] = x.ravel()
-                    tpcf_matrix[:, k, i] = x.ravel()
+                            (len(xi.ravel()), len(halotab.gal_type)))
+                        tpcf_shape = xi.shape
+                    tpcf_matrix[:, i] = xi.ravel()
 
         halotab.attrs = {}
         halotab.attrs['tpcf'] = tpcf.__name__
+        halotab.attrs['mode'] = mode
         halotab.attrs['simname'] = halocat.simname
         halotab.attrs['redshift'] = halocat.redshift
         halotab.attrs['Num_ptcl_requirement'] = Num_ptcl_requirement
@@ -240,6 +261,8 @@ class TabCorr:
         halotab.tpcf_kwargs = tpcf_kwargs
         halotab.tpcf_shape = tpcf_shape
         halotab.tpcf_matrix = tpcf_matrix
+
+        halotab.init = True
 
         return halotab
 
@@ -273,8 +296,9 @@ class TabCorr:
             halotab.tpcf_args.append(fstream['tpcf_args'][key].value)
         halotab.tpcf_args = tuple(halotab.tpcf_args)
         halotab.tpcf_kwargs = {}
-        for key in fstream['tpcf_kwargs'].keys():
-            halotab.tpcf_kwargs[key] = fstream['tpcf_kwargs'][key].value
+        if 'tpcf_kwargs' in fstream:
+            for key in fstream['tpcf_kwargs'].keys():
+                halotab.tpcf_kwargs[key] = fstream['tpcf_kwargs'][key].value
         halotab.tpcf_shape = tuple(fstream['tpcf_shape'].value)
         fstream.close()
 
@@ -296,7 +320,7 @@ class TabCorr:
 
         fstream = h5py.File(fname, 'w-')
 
-        keys = ['simname', 'redshift', 'tpcf', 'Num_ptcl_requirement',
+        keys = ['tpcf', 'mode', 'simname', 'redshift', 'Num_ptcl_requirement',
                 'prim_haloprop_key', 'sec_haloprop', 'sec_haloprop_key',
                 'sec_haloprop_split']
         for key in keys:
@@ -347,7 +371,12 @@ class TabCorr:
                                      self.attrs['sec_haloprop'] else None))
 
         ngal = mean_occupation * self.gal_type['n_h'].data
-        xi = (np.sum(self.tpcf_matrix * np.outer(ngal, ngal), axis=(1, 2)) /
-              np.sum(ngal)**2).reshape(self.tpcf_shape)
+        if self.attrs['mode'] == 'auto':
+            xi = (np.sum(self.tpcf_matrix * np.outer(ngal, ngal),
+                         axis=(1, 2)) /
+                  np.sum(ngal)**2).reshape(self.tpcf_shape)
+        elif self.attrs['mode'] == 'cross':
+            xi = (np.sum(self.tpcf_matrix * ngal, axis=1) /
+                  np.sum(ngal)).reshape(self.tpcf_shape)
 
         return ngal, xi
