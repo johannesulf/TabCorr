@@ -142,7 +142,7 @@ class TabCorr:
                     np.log10(halos[prim_haloprop_key]),
                     halos[sec_haloprop_key + '_percentile'],
                     bins=[prim_haloprop_bins, sec_haloprop_percentile_bins]))
-        halotab.gal_type['n_h'] = n_h.ravel() / np.prod(halocat.Lbox)
+        halotab.gal_type['n_h'] = n_h.ravel(order='F') / np.prod(halocat.Lbox)
 
         grid = np.meshgrid(log_prim_haloprop_bins,
                            sec_haloprop_percentile_bins)
