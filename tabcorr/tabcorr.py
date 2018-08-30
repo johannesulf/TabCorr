@@ -1,6 +1,6 @@
 import h5py
 import numpy as np
-from astropy.table import Table
+from astropy.table import Table, vstack
 from halotools.empirical_models import PrebuiltHodModelFactory, model_defaults
 from halotools.mock_observables import return_xyz_formatted_array
 from halotools.sim_manager import sim_defaults
@@ -19,9 +19,9 @@ class TabCorr:
                  Num_ptcl_requirement=sim_defaults.Num_ptcl_requirement,
                  cosmology=sim_defaults.default_cosmology,
                  prim_haloprop_key=model_defaults.prim_haloprop_key,
-                 sec_haloprop=False,
+                 prim_haloprop_bins=100,
                  sec_haloprop_key=model_defaults.sec_haloprop_key,
-                 sec_haloprop_split=0.5, prim_haloprop_bins=100,
+                 sec_haloprop_percentile_bins=None,
                  sats_per_prim_haloprop=3e-13, downsample=1.0,
                  verbose=False, redshift_space_distortions=True,
                  **tpcf_kwargs):
@@ -69,11 +69,10 @@ class TabCorr:
             governing the occupation statistics of gal_type galaxies. Default
             value is specified in the model_defaults module.
 
-        sec_haloprop : boolean, optional
-            Boolean determining whether halo correlation functions will be
-            split by secondary halo properties. Note that doing so will not
-            affect predictions for models that only rely on a primary halo
-            property.
+        prim_haloprop_bins : int or list, optional
+            Integer determining how many (logarithmic) bins in primary halo
+            property will be used. If a list or numpy array is provided, these
+            will be used as bins directly.
 
         sec_haloprop_key : string, optional
             String giving the column name of the secondary halo property
@@ -82,14 +81,12 @@ class TabCorr:
             specified in the `~halotools.empirical_models.model_defaults`
             module.
 
-        sec_haloprop_split : float, optional
-            Fraction between 0 and 1 defining how we split halos into two
-            groupings based on their conditional secondary percentiles. Default
-            is 0.5 for a constant 50/50 split.
-
-        prim_haloprop_bins : int, optional
-            Integer determining how many (logarithmic) bins in primary halo
-            property will be used.
+        sec_haloprop_percentile_bins : int, float, list or None, optional
+            If an integer, it determines how many evenly spaced bins in the
+            secondary halo property percentiles are going to be used. If a
+            float between 0 and 1, it determines the split. Finally, if a list
+            or numpy array, it directly describes the bins that are going to be
+            used. If None is provided, no binning is applied.
 
         sats_per_prim_haloprop : float, optional
             Float determing how many satellites sample each halo. For each
@@ -120,6 +117,12 @@ class TabCorr:
             correlation functions for arbitrary galaxy models.
         """
 
+        if sec_haloprop_percentile_bins is None:
+            sec_haloprop_percentile_bins = np.array([0, 1])
+        elif isinstance(sec_haloprop_percentile_bins, float):
+            sec_haloprop_percentile_bins = np.array(
+                [0, sec_haloprop_percentile_bins, 1])
+
         halotab = cls()
 
         # First, we tabulate the halo number densities.
@@ -133,42 +136,35 @@ class TabCorr:
                 sec_haloprop_key=sec_haloprop_key))
 
         halotab.gal_type = Table()
-        n_h, log_prim_haloprop_bins = np.histogram(
-            np.log10(halos[prim_haloprop_key]), bins=prim_haloprop_bins)
-        prim_haloprop_bins = 10**log_prim_haloprop_bins
-        if sec_haloprop:
-            mask = (
-                halos[sec_haloprop_key + '_percentile'] < sec_haloprop_split)
-            n_h_0, log_prim_haloprop_bins = np.histogram(
-                np.log10(halos[prim_haloprop_key][mask]),
-                bins=log_prim_haloprop_bins)
-            mask = (
-                halos[sec_haloprop_key + '_percentile'] >= sec_haloprop_split)
-            n_h_1, log_prim_haloprop_bins = np.histogram(
-                np.log10(halos[prim_haloprop_key][mask]),
-                bins=log_prim_haloprop_bins)
-            halotab.gal_type['n_h'] = (
-                np.tile(np.concatenate((n_h_0, n_h_1)), 2) /
-                np.prod(halocat.Lbox))
-            halotab.gal_type['sec'] = np.tile(
-                np.repeat(np.array([0, 1]), len(n_h)), 2)
-        else:
-            halotab.gal_type['n_h'] = np.tile(n_h, 2) / np.prod(halocat.Lbox)
 
+        n_h, log_prim_haloprop_bins, sec_haloprop_percentile_bins = (
+            np.histogram2d(
+                    np.log10(halos[prim_haloprop_key]),
+                    halos[sec_haloprop_key + '_percentile'],
+                    bins=[prim_haloprop_bins, sec_haloprop_percentile_bins]))
+        halotab.gal_type['n_h'] = n_h.ravel() / np.prod(halocat.Lbox)
+
+        grid = np.meshgrid(log_prim_haloprop_bins,
+                           sec_haloprop_percentile_bins)
+        halotab.gal_type['log_prim_haloprop_min'] = grid[0][:-1, :-1].ravel()
+        halotab.gal_type['log_prim_haloprop_max'] = grid[0][:-1, 1:].ravel()
+        halotab.gal_type['sec_haloprop_percentile_min'] = (
+            grid[1][:-1, :-1].ravel())
+        halotab.gal_type['sec_haloprop_percentile_max'] = (
+            grid[1][1:, :-1].ravel())
+
+        halotab.gal_type = vstack([halotab.gal_type, halotab.gal_type])
         halotab.gal_type['gal_type'] = np.concatenate((
             np.repeat('centrals'.encode('utf8'),
                       len(halotab.gal_type) // 2),
             np.repeat('satellites'.encode('utf8'),
                       len(halotab.gal_type) // 2)))
-        halotab.gal_type['log_prim_haloprop_min'] = np.tile(
-            log_prim_haloprop_bins[:-1], len(halotab.gal_type) //
-            len(log_prim_haloprop_bins[:-1]))
-        halotab.gal_type['log_prim_haloprop_max'] = np.tile(
-            log_prim_haloprop_bins[1:], len(halotab.gal_type) //
-            len(log_prim_haloprop_bins[1:]))
         halotab.gal_type['prim_haloprop'] = 10**(0.5 * (
             halotab.gal_type['log_prim_haloprop_min'] +
             halotab.gal_type['log_prim_haloprop_max']))
+        halotab.gal_type['sec_haloprop_percentile'] = (0.5 * (
+            halotab.gal_type['sec_haloprop_percentile_min'] +
+            halotab.gal_type['sec_haloprop_percentile_max']))
 
         # Now, we tabulate the correlation functions.
         model = PrebuiltHodModelFactory('zheng07', redshift=halocat.redshift,
@@ -202,14 +198,11 @@ class TabCorr:
                  gals[prim_haloprop_key]) &
                 (10**(halotab.gal_type['log_prim_haloprop_max'][i]) >=
                  gals[prim_haloprop_key]) &
+                (halotab.gal_type['sec_haloprop_percentile_min'][i] <
+                 gals[sec_haloprop_key + '_percentile']) &
+                (halotab.gal_type['sec_haloprop_percentile_max'][i] >=
+                 gals[sec_haloprop_key + '_percentile']) &
                 (halotab.gal_type['gal_type'][i] == gals['gal_type']))
-            if sec_haloprop:
-                if halotab.gal_type['sec'][i] == 0:
-                    mask = mask & (gals[sec_haloprop_key + '_percentile'] <
-                                   sec_haloprop_split)
-                else:
-                    mask = mask & (gals[sec_haloprop_key + '_percentile'] >=
-                                   sec_haloprop_split)
 
             pos.append(pos_all[mask])
 
@@ -253,9 +246,7 @@ class TabCorr:
         halotab.attrs['redshift'] = halocat.redshift
         halotab.attrs['Num_ptcl_requirement'] = Num_ptcl_requirement
         halotab.attrs['prim_haloprop_key'] = prim_haloprop_key
-        halotab.attrs['sec_haloprop'] = sec_haloprop
         halotab.attrs['sec_haloprop_key'] = sec_haloprop_key
-        halotab.attrs['sec_haloprop_split'] = sec_haloprop_split
 
         halotab.tpcf_args = tpcf_args
         halotab.tpcf_kwargs = tpcf_kwargs
@@ -321,8 +312,7 @@ class TabCorr:
         fstream = h5py.File(fname, 'w-')
 
         keys = ['tpcf', 'mode', 'simname', 'redshift', 'Num_ptcl_requirement',
-                'prim_haloprop_key', 'sec_haloprop', 'sec_haloprop_key',
-                'sec_haloprop_split']
+                'prim_haloprop_key', 'sec_haloprop_key']
         for key in keys:
             fstream.attrs[key] = self.attrs[key]
 
@@ -358,17 +348,53 @@ class TabCorr:
             Array storing the prediction for the correlation function.
         """
 
+        try:
+            assert (sorted(model.gal_types) == sorted(
+                    ['centrals', 'satellites']))
+        except AssertionError:
+            raise RuntimeError('The model instance must only have centrals ' +
+                               'and satellites as galaxy types. Check the ' +
+                               'gal_types attribute of the model instance.')
+
+        try:
+            assert (model._input_model_dictionary['centrals_occupation']
+                    .prim_haloprop_key == self.attrs['prim_haloprop_key'])
+            assert (model._input_model_dictionary['satellites_occupation']
+                    .prim_haloprop_key == self.attrs['prim_haloprop_key'])
+        except AssertionError:
+            raise RuntimeError('Mismatch in the primary halo properties of ' +
+                               'the model and the TabCorr instance.')
+
+        try:
+            if hasattr(model._input_model_dictionary['centrals_occupation'],
+                       'sec_haloprop_key'):
+                assert (model._input_model_dictionary['centrals_occupation']
+                        .sec_haloprop_key == self.attrs['sec_haloprop_key'])
+            if hasattr(model._input_model_dictionary['satellites_occupation'],
+                       'sec_haloprop_key'):
+                assert (model._input_model_dictionary['satellites_occupation']
+                        .sec_haloprop_key == self.attrs['sec_haloprop_key'])
+        except AssertionError:
+            raise RuntimeError('Mismatch in the secondary halo properties ' +
+                               'of the model and the TabCorr instance.')
+
+        try:
+            assert np.abs(model.redshift - self.attrs['redshift']) < 0.05
+        except AssertionError:
+            raise RuntimeError('Mismatch in the redshift of the model and ' +
+                               'the TabCorr instance.')
+
         mean_occupation = np.zeros(len(self.gal_type))
 
         mask = self.gal_type['gal_type'] == 'centrals'
         mean_occupation[mask] = model.mean_occupation_centrals(
             prim_haloprop=self.gal_type['prim_haloprop'][mask],
-            sec_haloprop_percentile=(self.gal_type['sec'][mask] if
-                                     self.attrs['sec_haloprop'] else None))
+            sec_haloprop_percentile=(
+                self.gal_type['sec_haloprop_percentile'][mask]))
         mean_occupation[~mask] = model.mean_occupation_satellites(
             prim_haloprop=self.gal_type['prim_haloprop'][~mask],
-            sec_haloprop_percentile=(self.gal_type['sec'][~mask] if
-                                     self.attrs['sec_haloprop'] else None))
+            sec_haloprop_percentile=(
+                self.gal_type['sec_haloprop_percentile'][~mask]))
 
         ngal = mean_occupation * self.gal_type['n_h'].data
         if self.attrs['mode'] == 'auto':
