@@ -1,5 +1,6 @@
 import h5py
 import numpy as np
+import itertools
 from astropy.table import Table, vstack
 from halotools.empirical_models import PrebuiltHodModelFactory, model_defaults
 from halotools.mock_observables import return_xyz_formatted_array
@@ -22,7 +23,7 @@ class TabCorr:
                  prim_haloprop_bins=100,
                  sec_haloprop_key=model_defaults.sec_haloprop_key,
                  sec_haloprop_percentile_bins=None,
-                 sats_per_prim_haloprop=3e-13, downsample=1.0,
+                 sats_per_prim_haloprop=3e-12, downsample=1.0,
                  verbose=False, redshift_space_distortions=True,
                  **tpcf_kwargs):
         r"""
@@ -326,7 +327,7 @@ class TabCorr:
 
         self.gal_type.write(fname, path='gal_type', append=True)
 
-    def predict(self, model):
+    def predict(self, model, separate_gal_type=False):
         r"""
         Predicts the number density and correlation function for a certain
         model.
@@ -337,15 +338,20 @@ class TabCorr:
             Instance of ``halotools.empirical_models.HodModelFactory``
             describing the model for which predictions are made.
 
+        separate_gal_type : boolean, optional
+            If True, the return values are dictionaries divided by each galaxy
+            types contribution to the output result.
+
         Returns
         -------
-        ngal : numpy.array
-            Array containing the number densities for each galaxy type
-            stored in self.gal_type. The total galaxy number density is the sum
-            of all elements of this array.
+        ngal : numpy.array or dict
+            Array or dictionary of arrays containing the number densities for
+            each galaxy type stored in self.gal_type. The total galaxy number
+            density is the sum of all elements of this array.
 
-        xi : numpy.array
-            Array storing the prediction for the correlation function.
+        xi : numpy.array or dict
+            Array or dictionary of arrays storing the prediction for the
+            correlation function.
         """
 
         try:
@@ -397,12 +403,44 @@ class TabCorr:
                 self.gal_type['sec_haloprop_percentile'][~mask]))
 
         ngal = mean_occupation * self.gal_type['n_h'].data
-        if self.attrs['mode'] == 'auto':
-            xi = (np.sum(self.tpcf_matrix * np.outer(ngal, ngal),
-                         axis=(1, 2)) /
-                  np.sum(ngal)**2).reshape(self.tpcf_shape)
-        elif self.attrs['mode'] == 'cross':
-            xi = (np.sum(self.tpcf_matrix * ngal, axis=1) /
-                  np.sum(ngal)).reshape(self.tpcf_shape)
 
-        return ngal, xi
+        if self.attrs['mode'] == 'auto':
+            xi = self.tpcf_matrix * np.outer(ngal, ngal) / np.sum(ngal)**2
+        elif self.attrs['mode'] == 'cross':
+            xi = self.tpcf_matrix * ngal / np.sum(ngal)
+
+        if not separate_gal_type:
+            ngal = np.sum(ngal)
+            if self.attrs['mode'] == 'auto':
+                xi = np.sum(xi, axis=(1, 2)).reshape(self.tpcf_shape)
+            elif self.attrs['mode'] == 'cross':
+                xi = np.sum(xi, axis=1).reshape(self.tpcf_shape)
+            return ngal, xi
+        else:
+            ngal_dict = {}
+            xi_dict = {}
+
+            for gal_type in np.unique(self.gal_type['gal_type']):
+                mask = self.gal_type['gal_type'] == gal_type
+                ngal_dict[gal_type] = np.sum(ngal[mask])
+
+            if self.attrs['mode'] == 'auto':
+                grid = np.meshgrid(self.gal_type['gal_type'],
+                                   self.gal_type['gal_type'])
+                for gal_type_1, gal_type_2 in (
+                        itertools.combinations_with_replacement(
+                            np.unique(self.gal_type['gal_type']), 2)):
+                    mask = (((gal_type_1 == grid[0]) &
+                             (gal_type_2 == grid[1])) |
+                            ((gal_type_1 == grid[1]) &
+                             (gal_type_2 == grid[0])))
+                    xi_dict['%s-%s' % (gal_type_1, gal_type_2)] = np.sum(
+                        xi * mask, axis=(1, 2)).reshape(self.tpcf_shape)
+
+            elif self.attrs['mode'] == 'cross':
+                for gal_type in np.unique(self.gal_type['gal_type']):
+                    mask = self.gal_type['gal_type'] == gal_type
+                    xi_dict[gal_type] = np.sum(
+                        xi * mask, axis=1).reshape(self.tpcf_shape)
+
+            return ngal_dict, xi_dict

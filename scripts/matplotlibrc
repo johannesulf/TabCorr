@@ -1,0 +1,19 @@
+font.family		: serif
+font.size		: 10
+text.usetex	    	: True
+figure.figsize		: 3.33, 2.5
+figure.dpi		: 300
+savefig.dpi		: 300
+backend			: Agg
+legend.fontsize         : medium
+xtick.direction		: in
+xtick.top		: True
+xtick.bottom		: True
+ytick.direction		: in
+ytick.left		: True
+ytick.right		: True
+legend.fancybox		: False
+legend.framealpha	: 1.0
+legend.edgecolor	: 0.0
+xtick.minor.visible	: True
+ytick.minor.visible	: True

@@ -1,37 +1,3 @@
-# TabCorr - Tabulated Correlation functions for halotools
-
-This Python module provides extremely efficient and precise calculations of galaxy correlation functions in halotools using tabulated values. It is specifically intended for Markov chain monte carlo (MCMC) exploration of the galaxy-halo connection. It implements the method described in Zheng et al. (2016, http://adsabs.harvard.edu/abs/2016MNRAS.458.4015Z) of tabulating correlation functions that only need to be convolved with the mean halo occupation to obtain the full correlation function of galaxies.
-
----
-
-### Prerequisites
-
-The following python packages (and their prerequisites) are required for running this module.
-
-* h5py
-* numpy
-* astropy
-* halotools
-
-This module has been tested with Python 3.x.
-
----
-
-### Installation
-
-The package can be installed via pip from the main directory.
-
-```
-pip3 install --user .
-```
-
----
-
-### Usage
-
-The following code demonstrates the basic usage of TabCorr.
-
-```
 import numpy as np
 from matplotlib import cm
 from matplotlib import colors
@@ -97,33 +63,3 @@ plt.ylabel(r'$w_p \ [h^{-1} \ \mathrm{Mpc}]$')
 plt.tight_layout(pad=0.3)
 plt.savefig('wp_vs_logm1.png', dpi=300)
 plt.close()
-
-```
-
-The above code will generate the following figures.
-
-![wp_decomposition](scripts/wp_decomposition.png)
-![wp_vs_logm1](scripts/wp_vs_logm1.png)
-
----
-
-### To-do list
-
-* ~~Currently, TabCorr only works for autocorrelation functions. It should be
-straightforward to also include cross-correlation functions, particularly
-``delta_sigma``.~~ Now implemented!
-* TabCorr works for HOD and dHOD models. Support for SHAM models should be
-easy to implement.
-* ~~Add a function that checks that the model and the tabulated halo catalog
-are compatible.~~ Now done on the fly!
-* The phase-space distributions are hard-coded in right now. Specifically,
-satellites use ``NFWPhaseSpace``. It should be straightforward to include
-arbitrary phase-space models for centrals and satellites.
-* Add option to project the halo catalog onto the x, y and z-axis to increase
-precision.
-
----
-
-### Author
-
-Johannes Ulf Lange
