@@ -2,11 +2,21 @@ import h5py
 import numpy as np
 import itertools
 from astropy.table import Table, vstack
-from halotools.empirical_models import PrebuiltHodModelFactory, model_defaults
+from halotools.empirical_models import HodModelFactory, model_defaults
+from halotools.empirical_models import TrivialPhaseSpace, Zheng07Cens
+from halotools.empirical_models import NFWPhaseSpace, Zheng07Sats
 from halotools.mock_observables import return_xyz_formatted_array
 from halotools.sim_manager import sim_defaults
 from halotools.utils import crossmatch
 from halotools.utils.table_utils import compute_conditional_percentiles
+
+
+def print_progress(progress):
+    percent = "{0:.1f}".format(100 * progress)
+    bar = '=' * int(50 * progress) + '>' + ' ' * int(50 * (1 - progress))
+    print('\rProgress: |{0}| {1}%'.format(bar, percent), end='\r')
+    if progress == 1.0:
+        print()
 
 
 class TabCorr:
@@ -25,6 +35,7 @@ class TabCorr:
                  sec_haloprop_percentile_bins=None,
                  sats_per_prim_haloprop=3e-12, downsample=1.0,
                  verbose=False, redshift_space_distortions=True,
+                 cens_prof_model=None, sats_prof_model=None, project_xyz=False,
                  **tpcf_kwargs):
         r"""
         Tabulates correlation functions for halos such that galaxy correlation
@@ -33,8 +44,8 @@ class TabCorr:
         Parameters
         ----------
         halocat : object
-            Either an instance of `~halotools.sim_manager.CachedHaloCatalog` or
-            `~halotools.sim_manager.UserSuppliedHaloCatalog`. This halo catalog
+            Either an instance of `halotools.sim_manager.CachedHaloCatalog` or
+            `halotools.sim_manager.UserSuppliedHaloCatalog`. This halo catalog
             is used to tabubulate correlation functions.
 
         tpcf : function
@@ -108,6 +119,21 @@ class TabCorr:
             Boolean determining whether redshift space distortions should be
             applied to halos/galaxies.
 
+        cens_prof_model : object, optional
+            Instance of `halotools.empirical_models.MonteCarloGalProf` that
+            determines the phase space coordinates of centrals. If none is
+            provided, `halotools.empirical_models.TrivialPhaseSpace` will be
+            used.
+
+        sats_prof_model : object, optional
+            Instance of `halotools.empirical_models.MonteCarloGalProf` that
+            determines the phase space coordinates of satellites. If none is
+            provided, `halotools.empirical_models.NFWPhaseSpace` will be used.
+
+        project_xyz : bool, optional
+            If True, the coordinates will be projected along all three spatial
+            axes. By default, only the projection onto the z-axis is used.
+
         *tpcf_kwargs : dict, optional
                 Keyword arguments passed to the ``tpcf`` function.
 
@@ -168,8 +194,19 @@ class TabCorr:
             halotab.gal_type['sec_haloprop_percentile_max']))
 
         # Now, we tabulate the correlation functions.
-        model = PrebuiltHodModelFactory('zheng07', redshift=halocat.redshift,
-                                        prim_haloprop_key=prim_haloprop_key)
+        cens_occ_model = Zheng07Cens(prim_haloprop_key=prim_haloprop_key)
+        if cens_prof_model is None:
+            cens_prof_model = TrivialPhaseSpace(redshift=halocat.redshift)
+        sats_occ_model = Zheng07Sats(prim_haloprop_key=prim_haloprop_key)
+        if sats_prof_model is None:
+            sats_prof_model = NFWPhaseSpace(redshift=halocat.redshift)
+
+        model = HodModelFactory(
+            centrals_occupation=cens_occ_model,
+            centrals_profile=cens_prof_model,
+            satellites_occupation=sats_occ_model,
+            satellites_profile=sats_prof_model)
+
         model.param_dict['logMmin'] = 0
         model.param_dict['sigma_logM'] = 0.1
         model.param_dict['alpha'] = 1.0
@@ -185,60 +222,85 @@ class TabCorr:
         gals[sec_haloprop_key + '_percentile'][idx_gals] = (
             halos[sec_haloprop_key + '_percentile'][idx_halos])
 
-        pos_all = return_xyz_formatted_array(
-            x=gals['x'], y=gals['y'], z=gals['z'],
-            velocity=gals['vz'] if redshift_space_distortions else 0,
-            velocity_distortion_dimension='z', period=halocat.Lbox,
-            redshift=halocat.redshift, cosmology=cosmology)
+        print("Number of tracer particles: {0}".format(len(gals)))
 
-        pos = []
-        for i in range(len(halotab.gal_type)):
+        for xyz in ['xyz', 'yzx', 'zxy']:
+            pos_all = return_xyz_formatted_array(
+                x=gals[xyz[0]], y=gals[xyz[1]], z=gals[xyz[2]],
+                velocity=gals['v'+xyz[2]] if redshift_space_distortions else 0,
+                velocity_distortion_dimension='z', period=halocat.Lbox,
+                redshift=halocat.redshift, cosmology=cosmology)
 
-            mask = (
-                (10**(halotab.gal_type['log_prim_haloprop_min'][i]) <
-                 gals[prim_haloprop_key]) &
-                (10**(halotab.gal_type['log_prim_haloprop_max'][i]) >=
-                 gals[prim_haloprop_key]) &
-                (halotab.gal_type['sec_haloprop_percentile_min'][i] <
-                 gals[sec_haloprop_key + '_percentile']) &
-                (halotab.gal_type['sec_haloprop_percentile_max'][i] >=
-                 gals[sec_haloprop_key + '_percentile']) &
-                (halotab.gal_type['gal_type'][i] == gals['gal_type']))
+            pos = []
+            n_gals = []
+            for i in range(len(halotab.gal_type)):
 
-            pos.append(pos_all[mask])
+                mask = (
+                    (10**(halotab.gal_type['log_prim_haloprop_min'][i]) <
+                     gals[prim_haloprop_key]) &
+                    (10**(halotab.gal_type['log_prim_haloprop_max'][i]) >=
+                     gals[prim_haloprop_key]) &
+                    (halotab.gal_type['sec_haloprop_percentile_min'][i] <
+                     gals[sec_haloprop_key + '_percentile']) &
+                    (halotab.gal_type['sec_haloprop_percentile_max'][i] >=
+                     gals[sec_haloprop_key + '_percentile']) &
+                    (halotab.gal_type['gal_type'][i] == gals['gal_type']))
 
-        for i in range(len(halotab.gal_type)):
+                pos.append(pos_all[mask])
+                n_gals.append(np.sum(mask))
+
+            n_gals = np.array(n_gals)
+            n_done = 0
 
             if verbose:
-                print("row %d/%d" % (i + 1, len(halotab.gal_type)))
+                print("Projecting onto {0}-axis...".format(xyz[2]))
 
-            if mode == 'auto':
-                for k in range(i, len(halotab.gal_type)):
-                    if len(pos[i]) * len(pos[k]) > 0:
+            for i in range(len(halotab.gal_type)):
+
+                if mode == 'auto':
+                    for k in range(i, len(halotab.gal_type)):
+                        if len(pos[i]) * len(pos[k]) > 0:
+
+                            if verbose:
+                                n_done += (n_gals[i] * n_gals[k] * (
+                                    2 if k != i else 1))
+                                print_progress(n_done / np.sum(n_gals)**2)
+
+                            xi = tpcf(
+                                pos[i], *tpcf_args,
+                                sample2=pos[k] if k != i else None,
+                                do_auto=(i == k), do_cross=(not i == k),
+                                **tpcf_kwargs)
+                            if 'tpcf_matrix' not in locals():
+                                tpcf_matrix = np.zeros(
+                                    (len(xi.ravel()), len(halotab.gal_type),
+                                     len(halotab.gal_type)))
+                                tpcf_shape = xi.shape
+                            tpcf_matrix[:, i, k] += xi.ravel()
+                            tpcf_matrix[:, k, i] += xi.ravel()
+
+                elif mode == 'cross':
+                    if len(pos[i]) > 0:
+
+                        if verbose:
+                            n_done += n_gals[i]
+                            print_progress(n_done / np.sum(n_gals))
+
                         xi = tpcf(
-                            pos[i], *tpcf_args,
-                            sample2=pos[k] if k != i else None,
-                            do_auto=(i == k), do_cross=(not i == k),
-                            **tpcf_kwargs)
+                            pos[i], *tpcf_args, **tpcf_kwargs)
+                        if tpcf.__name__ == 'delta_sigma':
+                            xi = xi[1]
                         if 'tpcf_matrix' not in locals():
                             tpcf_matrix = np.zeros(
-                                (len(xi.ravel()), len(halotab.gal_type),
-                                 len(halotab.gal_type)))
+                                (len(xi.ravel()), len(halotab.gal_type)))
                             tpcf_shape = xi.shape
-                        tpcf_matrix[:, i, k] = xi.ravel()
-                        tpcf_matrix[:, k, i] = xi.ravel()
+                        tpcf_matrix[:, i] += xi.ravel()
 
-            elif mode == 'cross':
-                if len(pos[i]) > 0:
-                    xi = tpcf(
-                        pos[i], *tpcf_args, **tpcf_kwargs)
-                    if tpcf.__name__ == 'delta_sigma':
-                        xi = xi[1]
-                    if 'tpcf_matrix' not in locals():
-                        tpcf_matrix = np.zeros(
-                            (len(xi.ravel()), len(halotab.gal_type)))
-                        tpcf_shape = xi.shape
-                    tpcf_matrix[:, i] = xi.ravel()
+            if not project_xyz:
+                break
+
+        if project_xyz:
+            tpcf_matrix /= 3.0
 
         halotab.attrs = {}
         halotab.attrs['tpcf'] = tpcf.__name__
@@ -300,7 +362,7 @@ class TabCorr:
 
         return halotab
 
-    def write(self, fname):
+    def write(self, fname, overwrite=False):
         r"""
         Writes tabulated correlation functions to the disk.
 
@@ -308,9 +370,12 @@ class TabCorr:
         ----------
         fname : string
             Name of the file that is written.
+
+        overwrite : bool, optional
+            If True, any existing file will be overwritten.
         """
 
-        fstream = h5py.File(fname, 'w-')
+        fstream = h5py.File(fname, 'w' if overwrite else 'w-')
 
         keys = ['tpcf', 'mode', 'simname', 'redshift', 'Num_ptcl_requirement',
                 'prim_haloprop_key', 'sec_haloprop_key']

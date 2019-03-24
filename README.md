@@ -109,18 +109,8 @@ The above code will generate the following figures.
 
 ### To-do list
 
-* ~~Currently, TabCorr only works for autocorrelation functions. It should be
-straightforward to also include cross-correlation functions, particularly
-``delta_sigma``.~~ Now implemented!
 * TabCorr works for HOD and dHOD models. Support for SHAM models should be
 easy to implement.
-* ~~Add a function that checks that the model and the tabulated halo catalog
-are compatible.~~ Now done on the fly!
-* The phase-space distributions are hard-coded in right now. Specifically,
-satellites use ``NFWPhaseSpace``. It should be straightforward to include
-arbitrary phase-space models for centrals and satellites.
-* Add option to project the halo catalog onto the x, y and z-axis to increase
-precision.
 
 ---
 
