@@ -1,6 +1,7 @@
 import h5py
 import numpy as np
 import itertools
+from sys import getsizeof
 from astropy.table import Table, vstack
 from halotools.empirical_models import HodModelFactory, model_defaults
 from halotools.empirical_models import TrivialPhaseSpace, Zheng07Cens
@@ -36,7 +37,7 @@ class TabCorr:
                  sats_per_prim_haloprop=3e-12, downsample=1.0,
                  verbose=False, redshift_space_distortions=True,
                  cens_prof_model=None, sats_prof_model=None, project_xyz=False,
-                 **tpcf_kwargs):
+                 cosmology_ref=None, **tpcf_kwargs):
         r"""
         Tabulates correlation functions for halos such that galaxy correlation
         functions can be calculated rapidly.
@@ -149,8 +150,24 @@ class TabCorr:
         elif isinstance(sec_haloprop_percentile_bins, float):
             sec_haloprop_percentile_bins = np.array(
                 [0, sec_haloprop_percentile_bins, 1])
+        
+        if 'period' in tpcf_kwargs:
+            print('Warning: TabCorr will pass the keyword argument "period" ' +
+                  'to {} based on the Lbox argument of'.format(tpcf.__name__) +
+                  ' the halo catalog. The value you provided will be ignored.')
+            del tpcf_kwargs['period']
 
         halotab = cls()
+
+        if cosmology_ref is not None and mode == 'auto':
+            rp_stretch = (
+                cosmology_ref.comoving_distance(halocat.redshift) /
+                cosmology.comoving_distance(halocat.redshift))
+            pi_stretch = (cosmology.H(halocat.redshift) /
+                          cosmology_ref.H(halocat.redshift))
+            lbox_stretch = np.array([rp_stretch, rp_stretch, pi_stretch])
+        else:
+            lbox_stretch = np.ones(3)
 
         # First, we tabulate the halo number densities.
         halos = halocat.halo_table
@@ -169,7 +186,8 @@ class TabCorr:
                     np.log10(halos[prim_haloprop_key]),
                     halos[sec_haloprop_key + '_percentile'],
                     bins=[prim_haloprop_bins, sec_haloprop_percentile_bins]))
-        halotab.gal_type['n_h'] = n_h.ravel(order='F') / np.prod(halocat.Lbox)
+        halotab.gal_type['n_h'] = n_h.ravel(order='F') / np.prod(
+            halocat.Lbox * lbox_stretch)
 
         grid = np.meshgrid(log_prim_haloprop_bins,
                            sec_haloprop_percentile_bins)
@@ -222,14 +240,15 @@ class TabCorr:
         gals[sec_haloprop_key + '_percentile'][idx_gals] = (
             halos[sec_haloprop_key + '_percentile'][idx_halos])
 
-        print("Number of tracer particles: {0}".format(len(gals)))
+        if verbose:
+            print("Number of tracer particles: {0}".format(len(gals)))
 
         for xyz in ['xyz', 'yzx', 'zxy']:
             pos_all = return_xyz_formatted_array(
                 x=gals[xyz[0]], y=gals[xyz[1]], z=gals[xyz[2]],
                 velocity=gals['v'+xyz[2]] if redshift_space_distortions else 0,
                 velocity_distortion_dimension='z', period=halocat.Lbox,
-                redshift=halocat.redshift, cosmology=cosmology)
+                redshift=halocat.redshift, cosmology=cosmology) * lbox_stretch
 
             pos = []
             n_gals = []
@@ -270,6 +289,7 @@ class TabCorr:
                                 pos[i], *tpcf_args,
                                 sample2=pos[k] if k != i else None,
                                 do_auto=(i == k), do_cross=(not i == k),
+                                period=halocat.Lbox * lbox_stretch,
                                 **tpcf_kwargs)
                             if 'tpcf_matrix' not in locals():
                                 tpcf_matrix = np.zeros(
@@ -277,7 +297,7 @@ class TabCorr:
                                      len(halotab.gal_type)))
                                 tpcf_shape = xi.shape
                             tpcf_matrix[:, i, k] += xi.ravel()
-                            tpcf_matrix[:, k, i] += xi.ravel()
+                            tpcf_matrix[:, k, i] = tpcf_matrix[:, i, k]
 
                 elif mode == 'cross':
                     if len(pos[i]) > 0:
@@ -287,19 +307,20 @@ class TabCorr:
                             print_progress(n_done / np.sum(n_gals))
 
                         xi = tpcf(
-                            pos[i], *tpcf_args, **tpcf_kwargs)
+                            pos[i], *tpcf_args, **tpcf_kwargs,
+                            period=halocat.Lbox * lbox_stretch)
                         if tpcf.__name__ == 'delta_sigma':
                             xi = xi[1]
                         if 'tpcf_matrix' not in locals():
                             tpcf_matrix = np.zeros(
                                 (len(xi.ravel()), len(halotab.gal_type)))
                             tpcf_shape = xi.shape
-                        tpcf_matrix[:, i] += xi.ravel()
+                        tpcf_matrix[:, i] = xi.ravel()
 
-            if not project_xyz:
+            if not project_xyz or mode == 'cross':
                 break
 
-        if project_xyz:
+        if project_xyz and mode == 'auto':
             tpcf_matrix /= 3.0
 
         halotab.attrs = {}
@@ -362,7 +383,7 @@ class TabCorr:
 
         return halotab
 
-    def write(self, fname, overwrite=False):
+    def write(self, fname, overwrite=False, max_args_size=1000000):
         r"""
         Writes tabulated correlation functions to the disk.
 
@@ -373,6 +394,11 @@ class TabCorr:
 
         overwrite : bool, optional
             If True, any existing file will be overwritten.
+
+        maxsize : int, optional
+            TabCorr write arguments passed to the correlation function to file.
+            However, arguments that are numpy array with more entries than
+            max_args_size will be omitted.
         """
 
         fstream = h5py.File(fname, 'w' if overwrite else 'w-')
@@ -384,9 +410,13 @@ class TabCorr:
 
         fstream['tpcf_matrix'] = self.tpcf_matrix
         for i, arg in enumerate(self.tpcf_args):
-            fstream['tpcf_args/arg_%d' % i] = arg
+            if (type(arg) is not np.ndarray or
+                np.prod(arg.shape) < max_args_size):
+                fstream['tpcf_args/arg_%d' % i] = arg
         for key in self.tpcf_kwargs:
-            fstream['tpcf_kwargs/' + key] = self.tpcf_kwargs[key]
+            if (type(self.tpcf_kwargs[key]) is not np.ndarray or
+                np.prod(self.tpcf_kwargs[key].shape) < max_args_size):
+                fstream['tpcf_kwargs/' + key] = self.tpcf_kwargs[key]
         fstream['tpcf_shape'] = self.tpcf_shape
         fstream.close()
 
