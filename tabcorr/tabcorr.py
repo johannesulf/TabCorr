@@ -1,6 +1,6 @@
+import itertools
 import h5py
 import numpy as np
-import itertools
 from scipy.spatial import Delaunay
 from astropy.table import Table, vstack
 from halotools.empirical_models import HodModelFactory, model_defaults
@@ -150,7 +150,7 @@ class TabCorr:
         elif isinstance(sec_haloprop_percentile_bins, float):
             sec_haloprop_percentile_bins = np.array(
                 [0, sec_haloprop_percentile_bins, 1])
-        
+
         if 'period' in tpcf_kwargs:
             print('Warning: TabCorr will pass the keyword argument "period" ' +
                   'to {} based on the Lbox argument of'.format(tpcf.__name__) +
@@ -161,10 +161,12 @@ class TabCorr:
 
         if cosmology_ref is not None and mode == 'auto':
             rp_stretch = (
-                cosmology_ref.comoving_distance(halocat.redshift) /
-                cosmology.comoving_distance(halocat.redshift))
-            pi_stretch = (cosmology.H(halocat.redshift) /
-                          cosmology_ref.H(halocat.redshift))
+                (cosmology_ref.comoving_distance(halocat.redshift) *
+                 cosmology_ref.H0) /
+                (cosmology.comoving_distance(halocat.redshift) *
+                 cosmology.H0))
+            pi_stretch = (cosmology.efunc(halocat.redshift) /
+                          cosmology_ref.efunc(halocat.redshift))
             lbox_stretch = np.array([rp_stretch, rp_stretch, pi_stretch])
         else:
             lbox_stretch = np.ones(3)
@@ -183,9 +185,9 @@ class TabCorr:
 
         n_h, log_prim_haloprop_bins, sec_haloprop_percentile_bins = (
             np.histogram2d(
-                    np.log10(halos[prim_haloprop_key]),
-                    halos[sec_haloprop_key + '_percentile'],
-                    bins=[prim_haloprop_bins, sec_haloprop_percentile_bins]))
+                np.log10(halos[prim_haloprop_key]),
+                halos[sec_haloprop_key + '_percentile'],
+                bins=[prim_haloprop_bins, sec_haloprop_percentile_bins]))
         halotab.gal_type['n_h'] = n_h.ravel(order='F') / np.prod(
             halocat.Lbox * lbox_stretch)
 
@@ -430,11 +432,11 @@ class TabCorr:
 
         for i, arg in enumerate(self.tpcf_args):
             if (type(arg) is not np.ndarray or
-                np.prod(arg.shape) < max_args_size):
+                    np.prod(arg.shape) < max_args_size):
                 fstream['tpcf_args/arg_%d' % i] = arg
         for key in self.tpcf_kwargs:
             if (type(self.tpcf_kwargs[key]) is not np.ndarray or
-                np.prod(self.tpcf_kwargs[key].shape) < max_args_size):
+                    np.prod(self.tpcf_kwargs[key].shape) < max_args_size):
                 fstream['tpcf_kwargs/' + key] = self.tpcf_kwargs[key]
         fstream['tpcf_shape'] = self.tpcf_shape
         fstream.close()
@@ -474,7 +476,7 @@ class TabCorr:
 
         try:
             assert (sorted(model.gal_types) == sorted(
-                    ['centrals', 'satellites']))
+                ['centrals', 'satellites']))
         except AssertionError:
             raise RuntimeError('The model instance must only have centrals ' +
                                'and satellites as galaxy types. Check the ' +
@@ -600,8 +602,8 @@ def interpolate_predict(tabcorr_arr, x, xi, model, extrapolate=True,
             Keyword arguments passed to the ``mean_occupation`` functions of
             the model.
 
-	Returns
-	-------
+    Returns
+    -------
     ngal : numpy.array or dict
         Array containing the number densities for each galaxy type stored in
         self.gal_type. The total galaxy number density is the sum of all
@@ -609,8 +611,8 @@ def interpolate_predict(tabcorr_arr, x, xi, model, extrapolate=True,
 
     xi : numpy.array or dict
         Array storing the prediction for the correlation function.
-	"""
-    
+    """
+
     try:
         assert isinstance(x, list) or isinstance(x, np.ndarray)
         x = np.array(x)
@@ -643,7 +645,7 @@ def interpolate_predict(tabcorr_arr, x, xi, model, extrapolate=True,
                            'number of points provided via x.')
 
     if n_dim > 1:
-        
+
         tri = Delaunay(x)
         i = tri.find_simplex(xi)
         if i != -1:
@@ -653,14 +655,14 @@ def interpolate_predict(tabcorr_arr, x, xi, model, extrapolate=True,
                 raise RuntimeError('x is outside of the interpolation range.')
             else:
                 x_cm = np.mean(x[tri.simplices], axis=1)
-                i = np.argmin(np.sum((xi - x_cm)**2, axis=1)) # closest simplex
+                i = np.argmin(np.sum((xi - x_cm)**2, axis=1))  # closest simplex
 
-        s = tri.simplices[i]   
+        s = tri.simplices[i]
         b = tri.transform[i, :-1].dot(xi - tri.transform[i, -1])
         w = np.append(b, 1 - np.sum(b))
-        
+
     else:
-        
+
         if np.any(x < xi) and np.any(x > xi):
             s = [np.ma.MaskedArray.argmax(np.ma.masked_array(x, mask=(x > xi))),
                  np.ma.MaskedArray.argmin(np.ma.masked_array(x, mask=(x < xi)))]
@@ -723,8 +725,7 @@ def array_to_symmetric_matrix(array):
     for i in range(matrix.shape[0]):
         matrix[i, :i+1] = array[k:k+i+1]
         k = k + i + 1
-    
+
     matrix = matrix + matrix.T - matrix * np.identity(matrix.shape[0])
 
     return matrix
-
