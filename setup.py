@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(name='tabcorr',
-      version='0.5.1',
+      version='0.6',
       description='Tabulated correlation functions for halotools',
       url='https://github.com/johannesulf/TabCorr',
       author='Johannes Ulf Lange',
