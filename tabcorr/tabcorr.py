@@ -667,7 +667,7 @@ class TabCorrInterpolation:
                 simplex = [np.ma.MaskedArray.argmax(
                     np.ma.masked_array(self.x, mask=(self.x > x_model))),
                            np.ma.MaskedArray.argmin(
-                    np.ma.masked_array(self.x, mask=(self.x < x_model)))]
+                    np.ma.masked_array(self.x, mask=(self.x <= x_model)))]
             else:
                 if not extrapolate:
                     raise RuntimeError('The parameters of the model are ' +
