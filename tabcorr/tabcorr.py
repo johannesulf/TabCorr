@@ -174,8 +174,18 @@ class TabCorr:
         # First, we tabulate the halo number densities.
         halos = halocat.halo_table
         halos = halos[halos['halo_pid'] == -1]
-        halos = halos[halos[prim_haloprop_key] >= Num_ptcl_requirement *
-                      halocat.particle_mass]
+        halos = halos[halos[prim_haloprop_key] >=
+                      (Num_ptcl_requirement - 0.5) * halocat.particle_mass]
+
+        if isinstance(prim_haloprop_bins, int):
+            prim_haloprop_bins = np.linspace(
+                np.log10(np.amin(halos[prim_haloprop_key])) - 1e-3,
+                np.log10(np.amax(halos[prim_haloprop_key])) + 1e-3,
+                prim_haloprop_bins + 1)
+        elif not isinstance(prim_haloprop_bins, (list, np.ndarray)):
+            raise ValueError('prim_haloprop_bins must be an int, list or ' +
+                             'numpy array.')
+
         halos[sec_haloprop_key + '_percentile'] = (
             compute_conditional_percentiles(
                 table=halos, prim_haloprop_key=prim_haloprop_key,
@@ -183,7 +193,7 @@ class TabCorr:
 
         halotab.gal_type = Table()
 
-        n_h, log_prim_haloprop_bins, sec_haloprop_percentile_bins = (
+        n_h, prim_haloprop_bins, sec_haloprop_percentile_bins = (
             np.histogram2d(
                 np.log10(halos[prim_haloprop_key]),
                 halos[sec_haloprop_key + '_percentile'],
@@ -191,7 +201,7 @@ class TabCorr:
         halotab.gal_type['n_h'] = n_h.ravel(order='F') / np.prod(
             halocat.Lbox * lbox_stretch)
 
-        grid = np.meshgrid(log_prim_haloprop_bins,
+        grid = np.meshgrid(prim_haloprop_bins,
                            sec_haloprop_percentile_bins)
         halotab.gal_type['log_prim_haloprop_min'] = grid[0][:-1, :-1].ravel()
         halotab.gal_type['log_prim_haloprop_max'] = grid[0][:-1, 1:].ravel()
@@ -708,4 +718,3 @@ def symmetric_matrix_to_array(matrix):
             i*n_dim, i*n_dim + i + 1)
 
     return matrix.ravel()[sel]
-
