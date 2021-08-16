@@ -7,7 +7,9 @@ from halotools.mock_observables import wp
 from halotools.empirical_models import PrebuiltHodModelFactory
 from tabcorr import TabCorr
 
-# First, we tabulate the correlation functions in the halo catalog.
+# First, we tabulate the correlation functions in the halo catalog. Note that
+# by default, TabCorr applies redshift-space distortions (RSDs) in the
+# tabulation of correlation functions.
 rp_bins = np.logspace(-1, 1, 20)
 
 halocat = CachedHaloCatalog(simname='bolplanck')
