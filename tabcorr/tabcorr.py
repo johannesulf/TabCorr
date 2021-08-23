@@ -558,7 +558,8 @@ class TabCorr:
 
         self.gal_type.write(fname, path='gal_type', append=True)
 
-    def predict(self, model, separate_gal_type=False, **occ_kwargs):
+    def predict(self, model, separate_gal_type=False, subpoisson=False,
+                **occ_kwargs):
         """
         Predicts the number density and correlation function for a certain
         model.
@@ -658,6 +659,21 @@ class TabCorr:
 
             ngal_sq = (self.ngal_sq_prefactor * ngal[self.ngal_sq_index_1] *
                        ngal[self.ngal_sq_index_2])
+
+        if self.attrs['mode'] == 'auto' and subpoisson:
+            ss_p = mean_occupation**2
+            ss_np = (2 * mean_occupation * np.floor(mean_occupation) -
+                     np.floor(mean_occupation) *
+                     (np.floor(mean_occupation) + 1))
+            ratio = ss_np / ss_p
+            ratio[ss_p == 0] = 0
+            weight = (np.eye(len(ngal)) - np.eye(len(ngal), k=-1) / 2 -
+                      np.eye(len(ngal), k=+1) / 2)
+            weight = weight * (-np.outer(np.sqrt(1 - ratio),
+                                         np.sqrt(1 - ratio)))
+            weight *= np.outer(~mask, ~mask)
+            weight = symmetric_matrix_to_array(weight)
+            ngal_sq = ngal_sq * (1 + weight)
 
         if not separate_gal_type:
             if self.attrs['mode'] == 'auto':
