@@ -244,7 +244,7 @@ class TabCorr:
         halos = halocat.halo_table
         halos = halos[halos['halo_pid'] == -1]
         halos = halos[halos[prim_haloprop_key] >=
-                      (Num_ptcl_requirement - 0.5) * halocat.particle_mass]
+                      (Num_ptcl_requirement + 0.5) * halocat.particle_mass]
 
         if isinstance(prim_haloprop_bins, int):
             prim_haloprop_bins = np.linspace(
