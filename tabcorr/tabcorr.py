@@ -243,7 +243,7 @@ class TabCorr:
         # First, we tabulate the halo number densities.
         halos = halocat.halo_table
         halos = halos[halos['halo_upid'] == -1]
-        halos = halos[halos[prim_haloprop_key] >=
+        halos = halos[halos[prim_haloprop_key] >
                       Num_ptcl_requirement * halocat.particle_mass]
 
         if isinstance(prim_haloprop_bins, int):
