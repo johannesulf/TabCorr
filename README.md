@@ -1,6 +1,6 @@
 # TabCorr - Tabulated Correlation functions for halotools
 
-This Python module provides extremely efficient and precise calculations of galaxy correlation functions in halotools using tabulated values. It is specifically intended for Markov chain monte carlo (MCMC) exploration of the galaxy-halo connection. It implements the method described in Zheng et al. (2016, http://adsabs.harvard.edu/abs/2016MNRAS.458.4015Z) of tabulating correlation functions that only need to be convolved with the mean halo occupation to obtain the full correlation function of galaxies.
+This Python module provides extremely efficient and precise calculations of galaxy correlation functions in halotools using tabulated values. It is specifically intended for Markov chain monte carlo (MCMC) exploration of the galaxy-halo connection. It implements the method described in [Zheng & Guo (2016)](https://doi.org/10.1093/mnras/stw523) of tabulating correlation functions that only need to be convolved with the mean halo occupation to obtain the full correlation function of galaxies.
 
 ## Prerequisites
 
@@ -23,7 +23,7 @@ pip install git+https://github.com/johannesulf/TabCorr.git
 
 ## Usage
 
-The following code demonstrates the basic usage of TabCorr.
+The following code demonstrates the basic usage of `TabCorr`.
 
 ```
 import numpy as np
@@ -103,6 +103,10 @@ The above code will generate the following figures.
 ## Author
 
 Johannes Ulf Lange
+
+## Citations
+
+The method implemented in `TabCorr` has first been described in earlier work, particularly [Neistein et al. (2011)](https://doi.org/10.1111/j.1365-2966.2011.19145.x) and [Zheng & Guo (2016)](https://doi.org/10.1093/mnras/stw523). In [Lange et al. (2019a)](https://doi.org/10.1093/mnras/stz2124), we developed a generalized framework for this method that also takes into account assembly bias. Finally, a good reference for the `TabCorr` code itself is [Lange et al. (2019b)](https://doi.org/10.1093/mnras/stz2664).
 
 ## License
 
