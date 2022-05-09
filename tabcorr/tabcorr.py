@@ -65,8 +65,8 @@ def compute_tpcf_matrix(mode, pos, tpcf, period, tpcf_args, tpcf_kwargs,
         else:
             i = task
             if len(pos[i]) > 0:
-                n_tot += len(pos[i_1]) * len(pos[i_2])
-                input_queue.put(task)
+                n_tot += len(pos[i])
+                input_queue.put(i)
 
     if verbose:
         pbar = tqdm.tqdm(
