@@ -13,14 +13,15 @@ from tabcorr import TabCorr
 rp_bins = np.logspace(-1, 1, 20)
 
 halocat = CachedHaloCatalog(simname='bolplanck')
-halotab = TabCorr.tabulate(halocat, wp, rp_bins, pi_max=40)
+halotab = TabCorr.tabulate(halocat, wp, rp_bins, pi_max=40, verbose=True,
+                           num_threads=4)
 
 # We can save the result for later use.
-halotab.write('bolplanck.hdf5')
+halotab.write('bolplanck_wp.hdf5')
 
 # We could read it in like this. Thus, we can skip the previous steps in the
 # future.
-halotab = TabCorr.read('bolplanck.hdf5')
+halotab = TabCorr.read('bolplanck_wp.hdf5')
 
 # Now, we're ready to calculate correlation functions for a specific model.
 model = PrebuiltHodModelFactory('zheng07', threshold=-18)

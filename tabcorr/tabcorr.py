@@ -1,12 +1,12 @@
+"""Module implementing the halo tabulation method."""
+
 import h5py
 import tqdm
-import time
 import itertools
 import numpy as np
-from queue import Empty
 from random import shuffle
-from multiprocessing import Process, Queue
-from scipy.spatial import Delaunay
+from multiprocessing import Pool
+from scipy.interpolate import interp1d
 from astropy.table import Table, vstack
 from halotools.sim_manager import sim_defaults
 from halotools.empirical_models import HodModelFactory, model_defaults
@@ -17,111 +17,8 @@ from halotools.utils import crossmatch
 from halotools.utils.table_utils import compute_conditional_percentiles
 
 
-def compute_tpcf(mode, pos, tpcf, period, tpcf_args, tpcf_kwargs,
-                 input_queue, output_queue):
-
-    while True:
-        try:
-            i = input_queue.get(block=True, timeout=0.1)
-            if mode == 'auto':
-                i_1, i_2 = i
-                xi = tpcf(pos[i_1], *tpcf_args, sample2=pos[i_2] if i_1 != i_2
-                          else None,  do_auto=(i_1 == i_2),
-                          do_cross=(i_1 != i_2), period=period, **tpcf_kwargs)
-            else:
-                xi = tpcf(pos[i], *tpcf_args, period=period, **tpcf_kwargs)
-
-            output_queue.put((i, xi))
-
-        except Empty:
-            break
-
-
-def compute_tpcf_matrix(mode, pos, tpcf, period, tpcf_args, tpcf_kwargs,
-                        num_threads=1, verbose=False):
-
-    tpcf_matrix = None
-
-    input_queue = Queue()
-    output_queue = Queue()
-
-    if mode == 'auto':
-        tasks = itertools.combinations_with_replacement(range(len(pos)), 2)
-    else:
-        tasks = range(len(pos))
-
-    tasks = list(tasks)
-    shuffle(tasks)
-
-    n_tot = 0
-    n = 0
-
-    for task in tasks:
-        if mode == 'auto':
-            i_1, i_2 = task
-            if len(pos[i_1]) * len(pos[i_2]) > 0:
-                n_tot += len(pos[i_1]) * len(pos[i_2])
-                input_queue.put(task)
-        else:
-            i = task
-            if len(pos[i]) > 0:
-                n_tot += len(pos[i])
-                input_queue.put(i)
-
-    if verbose:
-        pbar = tqdm.tqdm(
-            total=n_tot, bar_format='{l_bar}{bar}[{elapsed}<{remaining}]',
-            smoothing=0)
-
-    p_list = []
-    for i in range(num_threads):
-        p = Process(target=compute_tpcf, args=(
-            mode, pos, tpcf, period, tpcf_args, tpcf_kwargs, input_queue,
-            output_queue))
-        p.start()
-        p_list.append(p)
-
-    while n < n_tot:
-        try:
-            task, xi = output_queue.get(False)
-
-            if tpcf_matrix is None:
-                if mode == 'auto':
-                    tpcf_matrix = np.zeros(
-                        (len(xi.ravel()), len(pos), len(pos)))
-                else:
-                    tpcf_matrix = np.zeros((len(xi.ravel()), len(pos)))
-
-            if mode == 'auto':
-                i_1, i_2 = task
-                tpcf_matrix[:, i_1, i_2] += xi.ravel()
-                tpcf_matrix[:, i_2, i_1] = tpcf_matrix[:, i_1, i_2]
-                n += len(pos[i_1]) * len(pos[i_2])
-                if verbose:
-                    pbar.update(len(pos[i_1]) * len(pos[i_2]))
-            else:
-                i = task
-                tpcf_matrix[:, i] += xi.ravel()
-                n += len(pos[i])
-                if verbose:
-                    pbar.update(len(pos[i]))
-
-            tpcf_shape = xi.shape
-
-        except Empty:
-            time.sleep(0.001)
-            pass
-
-    for p in p_list:
-        p.join()
-
-    if verbose:
-        pbar.close()
-
-    return tpcf_matrix, tpcf_shape
-
-
 class TabCorr:
+    """Class to tabulate halo and predict galaxy correlation functions."""
 
     def __init__(self):
         self.init = False
@@ -131,76 +28,59 @@ class TabCorr:
                  mode='auto',
                  Num_ptcl_requirement=sim_defaults.Num_ptcl_requirement,
                  prim_haloprop_key=model_defaults.prim_haloprop_key,
-                 prim_haloprop_bins=100,
+                 prim_haloprop_bins=30,
                  sec_haloprop_key=model_defaults.sec_haloprop_key,
                  sec_haloprop_percentile_bins=None,
                  sats_per_prim_haloprop=3e-12, downsample=1.0,
                  verbose=False, redshift_space_distortions=True,
                  cens_prof_model=None, sats_prof_model=None, project_xyz=False,
                  cosmology_obs=None, num_threads=1, **tpcf_kwargs):
-        """
-        Tabulates correlation functions for halos such that galaxy correlation
-        functions can be calculated rapidly.
+        """Tabulate correlation functions for halos.
 
         Parameters
         ----------
-        halocat : object
-            Either an instance of `halotools.sim_manager.CachedHaloCatalog` or
-            `halotools.sim_manager.UserSuppliedHaloCatalog`. This halo catalog
-            is used to tabubulate correlation functions.
-
+        halocat : halotools.sim_manager.CachedHaloCatalog or
+                  halotools.sim_manager.UserSuppliedHaloCatalog
+            Halo catalog used to tabubulate correlation functions.
         tpcf : function
             The halotools correlation function for which values are tabulated.
-            Positional arguments should be passed after this function.
-            Additional keyword arguments for the correlation function are also
-            passed through this function.
-
+            Can also be a custom function as long as it follows the halotools
+            syntax.
         *tpcf_args : tuple, optional
-            Positional arguments passed to the ``tpcf`` function.
-
+            Positional arguments passed to the `tpcf` function.
         mode : string, optional
-            String describing whether an auto- ('auto') or a cross-correlation
-            ('cross') function is going to be tabulated.
-
+            Whether an auto- ('auto') or a cross-correlation ('cross') function
+            is tabulated.
         Num_ptcl_requirement : int, optional
             Requirement on the number of dark matter particles in the halo
-            catalog. The column defined by the ``prim_haloprop_key`` string
+            catalog. The column defined by the `prim_haloprop_key` string
             will have a cut placed on it: all halos with
             halocat.halo_table[prim_haloprop_key] <
-            Num_ptcl_requirement*halocat.particle_mass will be thrown out
-            immediately after reading the original halo catalog in memory.
+            Num_ptcl_requirement*halocat.particle_mass will be thrown out.
             Default value is set in
-            `~halotools.sim_defaults.Num_ptcl_requirement`.
-
+            `halotools.sim_defaults.Num_ptcl_requirement`.
         prim_haloprop_key : string, optional
-            String giving the column name of the primary halo property
-            governing the occupation statistics of gal_type galaxies. Default
-            value is specified in the model_defaults module.
-
+            Name of the primary halo property governing the occupation
+            statistics of galaxies. Default value is specified in the
+            `halotools.empirical_models.model_defaults`.
         prim_haloprop_bins : int or list, optional
             Integer determining how many (logarithmic) bins in primary halo
             property will be used. If a list or numpy array is provided, these
-            will be used as bins directly.
-
+            will be used as bins directly. Default is 30.
         sec_haloprop_key : string, optional
             String giving the column name of the secondary halo property
-            governing the assembly bias. Must be a key in the table passed to
-            the methods of `HeavisideAssembiasComponent`. Default value is
-            specified in the `~halotools.empirical_models.model_defaults`
-            module.
-
+            governing the assembly bias. Default value is specified in the
+            `halotools.empirical_models.model_defaults` module.
         sec_haloprop_percentile_bins : int, float or None, optional
-            If an integer, it determines how many evenly spaced bins in the
+            If an integer, determines how many evenly spaced bins in the
             secondary halo property percentiles are going to be used. If a
             float between 0 and 1, it determines the split. If None is
-            provided, no binning is applied.
-
+            provided, no binning is applied. Default is None.
         sats_per_prim_haloprop : float, optional
-            Float determing how many satellites sample each halo. For each
-            halo, the number is drawn from a Poisson distribution with an
-            expectation value of ``sats_per_prim_haloprop`` times the primary
-            halo property.
-
+            Determines how many satellites sample each halo. For each halo, the
+            number is drawn from a Poisson distribution with an expectation
+            value of `sats_per_prim_haloprop` times the primary halo property.
+            Default is 3e12.
         downsample : float or function, optional
             Fraction between 0 and 1 used to downsample the total sample used
             to tabulate correlation functions. Values below unity can be used
@@ -208,53 +88,52 @@ class TabCorr:
             the resulting correlation functions will be less accurate. If
             float, the same value is applied to all halos. If function, it
             should return the fraction is a function of the primary halo
-            property.
-
-        verbose : boolean, optional
-            Boolean determing whether the progress should be displayed.
-
-        redshift_space_distortions : boolean, optional
-            Boolean determining whether redshift space distortions should be
-            applied to halos/galaxies.
-
+            property. Default is 1.0.
+        verbose : bool, optional
+            Whether the progress should be displayed. Default is False.
+        redshift_space_distortions : bool, optional
+            Whether redshift space distortions should be applied to
+            halos/galaxies. Default is True.
         cens_prof_model : object, optional
             Instance of `halotools.empirical_models.MonteCarloGalProf` that
-            determines the phase space coordinates of centrals. If none is
-            provided, `halotools.empirical_models.TrivialPhaseSpace` will be
-            used.
-
+            determines the phase space coordinates of centrals. If None,
+            `halotools.empirical_models.TrivialPhaseSpace` will be used.
+            Default is None.
         sats_prof_model : object, optional
             Instance of `halotools.empirical_models.MonteCarloGalProf` that
-            determines the phase space coordinates of satellites. If none is
-            provided, `halotools.empirical_models.NFWPhaseSpace` will be used.
-
+            determines the phase space coordinates of satellites. If None,
+            `halotools.empirical_models.NFWPhaseSpace` will be used. Default is
+            None.
         project_xyz : bool, optional
             If True, the coordinates will be projected along all three spatial
-            axes. By default, only the projection onto the z-axis is used.
-
+            axes. If False, only the projection onto the z-axis is used.
+            Default is False.
         cosmology_obs : object, optional
-            Instance of an astropy `~astropy.cosmology`. This can be used to
+            Instance of an astropy `astropy.cosmology`. This can be used to
             correct coordinates in the simulation for the Alcock-Paczynski (AP)
             effect, i.e. a mismatch between the cosmology of the model
             (simulation) and the cosmology used to interpret observations. Note
             that the cosmology of the simulation is part of the halocat object.
             If None, no correction for the AP effect is applied. Also, a
             correction for the AP effect is only applied for auto-correlation
-            functions.
-
+            functions. Default is None.
         num_threads : int, optional
-            How many threads to use for the tabulation.
-
+            How many threads to use for the tabulation. Default is 1.
         **tpcf_kwargs : dict, optional
-                Keyword arguments passed to the ``tpcf`` function.
+            Keyword arguments passed to the `tpcf` function.
 
         Returns
         -------
-        halotab : TabCorr
-            Object containing all necessary information to calculate
-            correlation functions for arbitrary galaxy models.
-        """
+            `TabCorr` object.
 
+        Raises
+        ------
+        ValueError
+            If invalid halo bins are given.
+        RuntimeError
+            If TabCorr encounters an internal error.
+
+        """
         if 'period' in tpcf_kwargs:
             print('Warning: TabCorr will pass the keyword argument "period" ' +
                   'to {} based on the Lbox argument of'.format(tpcf.__name__) +
@@ -282,12 +161,12 @@ class TabCorr:
                       Num_ptcl_requirement * halocat.particle_mass]
 
         if isinstance(prim_haloprop_bins, int):
-            prim_haloprop_bins = np.linspace(
+            log_prim_haloprop_bins = np.linspace(
                 np.log10(np.amin(halos[prim_haloprop_key])) - 1e-3,
                 np.log10(np.amax(halos[prim_haloprop_key])) + 1e-3,
                 prim_haloprop_bins + 1)
-        elif isinstance(prim_haloprop_bins, (list, np.ndarray)):
-            pass
+        elif isinstance(log_prim_haloprop_bins, (list, np.ndarray)):
+            log_prim_haloprop_bins = prim_haloprop_bins
         else:
             raise ValueError('prim_haloprop_bins must be an int, list or ' +
                              'numpy array.')
@@ -315,14 +194,14 @@ class TabCorr:
 
         halotab.gal_type = Table()
 
-        n_h, prim_haloprop_bins, sec_haloprop_percentile_bins = (
+        n_h, log_prim_haloprop_bins, sec_haloprop_percentile_bins = (
             np.histogram2d(
                 np.log10(halos[prim_haloprop_key]),
                 halos[sec_haloprop_key + '_percentile'],
-                bins=[prim_haloprop_bins, sec_haloprop_percentile_bins]))
+                bins=[log_prim_haloprop_bins, sec_haloprop_percentile_bins]))
         halotab.gal_type['n_h'] = n_h.ravel(order='F')
 
-        grid = np.meshgrid(prim_haloprop_bins,
+        grid = np.meshgrid(log_prim_haloprop_bins,
                            sec_haloprop_percentile_bins)
         halotab.gal_type['log_prim_haloprop_min'] = grid[0][:-1, :-1].ravel()
         halotab.gal_type['log_prim_haloprop_max'] = grid[0][:-1, 1:].ravel()
@@ -330,6 +209,25 @@ class TabCorr:
             grid[1][:-1, :-1].ravel())
         halotab.gal_type['sec_haloprop_percentile_max'] = (
             grid[1][1:, :-1].ravel())
+        halotab.gal_type['prim_haloprop'] = 10**(0.5 * (
+            halotab.gal_type['log_prim_haloprop_min'] +
+            halotab.gal_type['log_prim_haloprop_max']))
+        halotab.gal_type['sec_haloprop_percentile'] = (0.5 * (
+            halotab.gal_type['sec_haloprop_percentile_min'] +
+            halotab.gal_type['sec_haloprop_percentile_max']))
+        prim_haloprop = sort_into_bins(
+            np.log10(halos[prim_haloprop_key]), log_prim_haloprop_bins,
+            halos[sec_haloprop_key + '_percentile'],
+            sec_haloprop_percentile_bins, halos[prim_haloprop_key])
+        halotab.gal_type['prim_haloprop_dist_index'] = np.zeros(
+            len(halotab.gal_type))
+        for i in range(len(halotab.gal_type)):
+            if len(prim_haloprop[i]) > 0:
+                x_min = 10**halotab.gal_type['log_prim_haloprop_min'][i]
+                x_max = 10**halotab.gal_type['log_prim_haloprop_max'][i]
+                x_mean = np.mean(prim_haloprop[i])
+                halotab.gal_type['prim_haloprop_dist_index'][i] =\
+                    distribution_index(x_min, x_max, x_mean)
 
         halotab.gal_type = vstack([halotab.gal_type, halotab.gal_type])
         halotab.gal_type['gal_type'] = np.concatenate((
@@ -337,12 +235,6 @@ class TabCorr:
                       len(halotab.gal_type) // 2),
             np.repeat('satellites'.encode('utf8'),
                       len(halotab.gal_type) // 2)))
-        halotab.gal_type['prim_haloprop'] = 10**(0.5 * (
-            halotab.gal_type['log_prim_haloprop_min'] +
-            halotab.gal_type['log_prim_haloprop_max']))
-        halotab.gal_type['sec_haloprop_percentile'] = (0.5 * (
-            halotab.gal_type['sec_haloprop_percentile_min'] +
-            halotab.gal_type['sec_haloprop_percentile_max']))
 
         # Now, we tabulate the correlation functions.
         cens_occ_model = Zheng07Cens(prim_haloprop_key=prim_haloprop_key)
@@ -380,7 +272,7 @@ class TabCorr:
             if verbose and project_xyz:
                 print("Projecting onto {0}-axis...".format(xyz[2]))
 
-            pos_all = (return_xyz_formatted_array(
+            pos = (return_xyz_formatted_array(
                 x=gals[xyz[0]], y=gals[xyz[1]], z=gals[xyz[2]],
                 velocity=gals['v'+xyz[2]] if redshift_space_distortions else 0,
                 velocity_distortion_dimension='z', period=halocat.Lbox,
@@ -389,77 +281,59 @@ class TabCorr:
 
             period = halocat.Lbox * lbox_stretch
 
-            # Get a list of the positions of each sub-population.
-            i_prim = np.digitize(np.log10(gals[prim_haloprop_key]),
-                                 bins=prim_haloprop_bins, right=False) - 1
-            mask = (i_prim < 0) | (i_prim >= len(prim_haloprop_bins))
-            i_sec = np.digitize(
+            pos = sort_into_bins(
+                np.log10(gals[prim_haloprop_key]), log_prim_haloprop_bins,
                 gals[sec_haloprop_key + '_percentile'],
-                bins=sec_haloprop_percentile_bins, right=False) - 1
-            i_type = np.where(gals['gal_type'] == 'centrals', 0, 1)
+                sec_haloprop_percentile_bins, pos,
+                gal_type=gals['gal_type'])
 
-            # Throw out those that don't fall into any bin.
-            pos_all = pos_all[~mask]
+            assert len(pos) == len(halotab.gal_type)
 
-            i = (i_prim +
-                 i_sec * (len(prim_haloprop_bins) - 1) +
-                 i_type * ((len(prim_haloprop_bins) - 1) *
-                           (len(sec_haloprop_percentile_bins) - 1)))
-
-            pos_all = pos_all[np.argsort(i)]
-            counts = np.bincount(i, minlength=len(halotab.gal_type))
-
-            assert len(counts) == len(halotab.gal_type)
-
-            pos_bin = []
             for i in range(len(halotab.gal_type)):
 
-                pos = pos_all[np.sum(counts[:i]):np.sum(counts[:i+1]), :]
                 if halotab.gal_type['gal_type'][i] == 'centrals':
                     # Make sure the number of halos are consistent.
                     try:
-                        assert len(pos) == int(halotab.gal_type['n_h'][i])
+                        assert len(pos[i]) == int(halotab.gal_type['n_h'][i])
                     except AssertionError:
                         raise RuntimeError('There was an internal error in ' +
                                            'TabCorr. If possible, please ' +
                                            'report this bug in the TabCorr ' +
                                            'GitHub repository.')
                 else:
-                    if len(pos) == 0 and halotab.gal_type['n_h'][i] != 0:
+                    if len(pos[i]) == 0 and halotab.gal_type['n_h'][i] != 0:
                         raise RuntimeError(
                             'There was at least one bin without satellite ' +
                             'tracers. Increase sats_per_prim_haloprop.')
 
-                if len(pos) > 0:
+                if len(pos[i]) > 0:
 
                     if isinstance(downsample, float):
-                        use = np.random.random(len(pos)) < downsample
+                        select = np.random.random(len(pos[i])) < downsample
                     else:
-                        use = (
-                            np.random.random(len(pos)) <
+                        select = (
+                            np.random.random(len(pos[i])) <
                             downsample(halotab.gal_type['prim_haloprop'][i]))
 
                     # If the down-sampling reduced the number of tracers to at
                     # or below one, force at least 2 tracers to not bias the
                     # clustering estimates.
-                    if np.sum(use) <= 1 and len(pos) > 1:
-                        use = np.zeros(len(pos), dtype=bool)
-                        use[np.random.choice(len(pos), size=2)] = True
+                    if np.sum(select) <= 1 and len(pos[i]) > 1:
+                        select = np.zeros(len(pos[i]), dtype=bool)
+                        select[np.random.choice(len(pos[i]), size=2)] = True
 
-                    pos = pos[use]
-
-                pos_bin.append(pos)
+                    pos[i] = pos[i][select]
 
             if xyz == 'xyz':
                 tpcf_matrix, tpcf_shape = compute_tpcf_matrix(
-                    mode, pos_bin, tpcf, period, tpcf_args, tpcf_kwargs,
+                    mode, pos, tpcf, period, tpcf_args, tpcf_kwargs,
                     num_threads=num_threads, verbose=verbose)
 
             if not project_xyz or mode == 'cross':
                 break
             elif xyz != 'xyz':
                 tpcf_matrix += compute_tpcf_matrix(
-                    mode, pos_bin, tpcf, period, tpcf_args, tpcf_kwargs,
+                    mode, pos, tpcf, period, tpcf_args, tpcf_kwargs,
                     num_threads=num_threads, verbose=verbose)[0]
 
         if project_xyz and mode == 'auto':
@@ -479,6 +353,7 @@ class TabCorr:
             use = symmetric_matrix_to_array(np.outer(use, use))
         tpcf_matrix = tpcf_matrix[:, use]
 
+        # Convert into number densities.
         halotab.gal_type['n_h'] /= np.prod(halocat.Lbox * lbox_stretch)
 
         halotab.attrs = {}
@@ -501,21 +376,18 @@ class TabCorr:
 
     @classmethod
     def read(cls, fname):
-        """
-        Reads tabulated correlation functions from the disk.
+        """Read tabulated correlation functions from the disk.
 
         Parameters
         ----------
         fname : string
-            Name of the file containing the tabulated correlation functions.
+            Name of the file containing the TabCorr object.
 
         Returns
         -------
-        halotab : TabCorr
-            Object containing all necessary information to calculate
-            correlation functions for arbitrary galaxy models.
-        """
+            `TabCorr` object.
 
+        """
         halotab = cls()
 
         fstream = h5py.File(fname, 'r')
@@ -544,27 +416,24 @@ class TabCorr:
 
     def write(self, fname, overwrite=False, max_args_size=1000000,
               matrix_dtype=np.float32):
-        """
-        Writes tabulated correlation functions to the disk.
+        """Write the tabulated correlation functions to the disk.
 
         Parameters
         ----------
         fname : string
             Name of the file that is written.
-
         overwrite : bool, optional
-            If True, any existing file will be overwritten.
-
-        maxsize : int, optional
-            TabCorr write arguments passed to the correlation function to file.
-            However, arguments that are numpy arrays with more entries than
-            max_args_size will be omitted.
-
+            If True, any existing file will be overwritten. Default is False.
+        max_args_size : int, optional
+            By default, TabCorr writes all arguments passed to the correlation
+            function when calling `tabulate` to file. However, arguments that
+            are numpy arrays with more entries than max_args_size will be
+            omitted. Default is 1000000.
         matrix_dtype : type
-            The dtype used to write the correlation matrix to disk. You can use
-            this to save space at the expense of predicsion.
-        """
+            The dtype used to write the correlation matrix to disk. Can be used
+            to save space at the expense of precision.
 
+        """
         fstream = h5py.File(fname, 'w' if overwrite else 'w-')
 
         keys = ['tpcf', 'mode', 'simname', 'redshift', 'Num_ptcl_requirement',
@@ -587,44 +456,39 @@ class TabCorr:
 
         self.gal_type.write(fname, path='gal_type', append=True)
 
-    def predict(self, model, separate_gal_type=False, **occ_kwargs):
-        """
-        Predicts the number density and correlation function for a certain
-        model.
+    def mean_occupation(self, model, n_gauss_prim=10, **occ_kwargs):
+        """Calculate the mean occupation for each halo/galaxy bin.
 
         Parameters
         ----------
         model : HodModelFactory
             Instance of ``halotools.empirical_models.HodModelFactory``
             describing the model for which predictions are made.
-
-        separate_gal_type : boolean, optional
-            If True, the return values are dictionaries divided by each galaxy
-            types contribution to the output result.
-
+        n_gauss_prim : int, optional
+            The number of points used in the Gaussian quadrature to calculate
+            the mean occupation averaged over the primary halo property in each
+            halo bin. Default is 10.
         **occ_kwargs : dict, optional
-                Keyword arguments passed to the ``mean_occupation`` functions
-                of the model.
+            Keyword arguments passed to the ``mean_occupation`` functions of
+            the model.
 
         Returns
         -------
-        ngal : numpy.array or dict
-            Array or dictionary of arrays containing the number densities for
-            each galaxy type stored in self.gal_type. The total galaxy number
-            density is the sum of all elements of this array.
+            Array containing the mean occuaption numbers. Has the same length
+            as `self.gal_type`.
 
-        xi : numpy.array or dict
-            Array or dictionary of arrays storing the prediction for the
-            correlation function.
+        Raises
+        ------
+        ValueError
+            If there is a mis-match between the model and the TabCorr instance.
         """
-
         try:
             assert (sorted(model.gal_types) == sorted(
                 ['centrals', 'satellites']))
         except AssertionError:
-            raise RuntimeError('The model instance must only have centrals ' +
-                               'and satellites as galaxy types. Check the ' +
-                               'gal_types attribute of the model instance.')
+            raise ValueError('The model instance must only have centrals and' +
+                             ' satellites as galaxy types. Check the ' +
+                             '`gal_types` attribute of the model instance.')
 
         try:
             assert (model._input_model_dictionary['centrals_occupation']
@@ -632,8 +496,8 @@ class TabCorr:
             assert (model._input_model_dictionary['satellites_occupation']
                     .prim_haloprop_key == self.attrs['prim_haloprop_key'])
         except AssertionError:
-            raise RuntimeError('Mismatch in the primary halo properties of ' +
-                               'the model and the TabCorr instance.')
+            raise ValueError('Mismatch in the primary halo properties of the' +
+                             ' model and the TabCorr instance.')
 
         try:
             if hasattr(model._input_model_dictionary['centrals_occupation'],
@@ -645,28 +509,96 @@ class TabCorr:
                 assert (model._input_model_dictionary['satellites_occupation']
                         .sec_haloprop_key == self.attrs['sec_haloprop_key'])
         except AssertionError:
-            raise RuntimeError('Mismatch in the secondary halo properties ' +
-                               'of the model and the TabCorr instance.')
+            raise ValueError('Mismatch in the secondary halo properties of ' +
+                             'the model and the TabCorr instance.')
 
         try:
             assert np.abs(model.redshift - self.attrs['redshift']) < 0.05
         except AssertionError:
-            raise RuntimeError('Mismatch in the redshift of the model and ' +
-                               'the TabCorr instance.')
+            raise ValueError('Mismatch in the redshift of the model and the ' +
+                             'TabCorr instance.')
 
-        mean_occupation = np.zeros(len(self.gal_type))
+        log_prim_haloprop_min = self.gal_type['log_prim_haloprop_min'].data
+        log_prim_haloprop_max = self.gal_type['log_prim_haloprop_max'].data
+        d_log_prim_haloprop = log_prim_haloprop_max - log_prim_haloprop_min
+        sec_haloprop_percentile = self.gal_type['sec_haloprop_percentile'].data
+        gal_type = self.gal_type['gal_type']
 
-        mask = self.gal_type['gal_type'] == 'centrals'
-        mean_occupation[mask] = model.mean_occupation_centrals(
-            prim_haloprop=self.gal_type['prim_haloprop'].data[mask],
-            sec_haloprop_percentile=(
-                self.gal_type['sec_haloprop_percentile'].data[mask]),
+        if not hasattr(self, 'x_gauss') or len(self.x_gauss) != n_gauss_prim:
+            self.x_gauss, self.w_gauss = np.polynomial.legendre.leggauss(
+                n_gauss_prim)
+            self.x_gauss = (self.x_gauss + 1) / 2
+
+        prim_haloprop = 10**(log_prim_haloprop_min + d_log_prim_haloprop *
+                             self.x_gauss[:, np.newaxis]).T.ravel()
+        sec_haloprop_percentile = np.repeat(sec_haloprop_percentile,
+                                            n_gauss_prim)
+        gal_type = np.repeat(gal_type, n_gauss_prim)
+
+        mean_occupation = np.zeros(len(prim_haloprop))
+        select = gal_type == 'centrals'
+        mean_occupation[select] = model.mean_occupation_centrals(
+            prim_haloprop=prim_haloprop[select],
+            sec_haloprop_percentile=sec_haloprop_percentile[select],
             **occ_kwargs)
-        mean_occupation[~mask] = model.mean_occupation_satellites(
-            prim_haloprop=self.gal_type['prim_haloprop'].data[~mask],
-            sec_haloprop_percentile=(
-                self.gal_type['sec_haloprop_percentile'].data[~mask]),
+        mean_occupation[~select] = model.mean_occupation_satellites(
+            prim_haloprop=prim_haloprop[~select],
+            sec_haloprop_percentile=sec_haloprop_percentile[~select],
             **occ_kwargs)
+        mean_occupation = mean_occupation.reshape(
+            (len(self.gal_type), n_gauss_prim))
+        prim_haloprop = prim_haloprop.reshape(mean_occupation.shape)
+
+        if 'prim_haloprop_dist_index' in self.gal_type.colnames:
+            # Add +1 to the index since we integrate over log M, not M.
+            n = self.gal_type['prim_haloprop_dist_index'][:, np.newaxis] + 1
+        else:
+            # Ignore the halo mass distribution if the TabCorr object was
+            # tabulated with an earlier version of TabCorr.
+            n = 0
+
+        return (np.sum(
+            self.w_gauss * mean_occupation * prim_haloprop**n, axis=-1) /
+            np.sum(self.w_gauss * prim_haloprop**n, axis=-1))
+
+    def predict(self, model, separate_gal_type=False, n_gauss_prim=10,
+                **occ_kwargs):
+        """Predict the number density and correlation function for a model.
+
+        Parameters
+        ----------
+        model : HodModelFactory or numpy.ndarray
+            Instance of ``halotools.empirical_models.HodModelFactory``
+            describing the model for which predictions are made or a numpy
+            array containing the mean occupation in each halo bin. The latter
+            option is mainly used internally.
+        separate_gal_type : bool, optional
+            If True, the return values are dictionaries divided by each galaxy
+            types contribution to the output result. Default is False.
+        n_gauss_prim : int, optional
+            The number of points used in the Gaussian quadrature to calculate
+            the mean occupation averaged over the primary halo property in each
+            halo bin. Default is 10.
+        **occ_kwargs : dict, optional
+            Keyword arguments passed to the ``mean_occupation`` functions of
+            the model.
+
+        Returns
+        -------
+        ngal : float or dict
+            Galaxy number density. If `separate_gal_type` is True, this is a
+            dictionary splitting contributions by galaxy type.
+        xi : numpy.ndarray
+            Correlation function values. If `separate_gal_type` is True, this
+            is a dictionary splitting contributions by galaxy type.
+
+        """
+        if not isinstance(model, np.ndarray):
+            mean_occupation = self.mean_occupation(
+                model, n_gauss_prim=n_gauss_prim, **occ_kwargs)
+        else:
+            mean_occupation = model
+
         ngal = mean_occupation * self.gal_type['n_h'].data
 
         if self.attrs['mode'] == 'auto':
@@ -690,189 +622,156 @@ class TabCorr:
 
         if not separate_gal_type:
             if self.attrs['mode'] == 'auto':
-                xi = np.einsum('ij, j', self.tpcf_matrix, ngal_sq) / np.sum(ngal_sq)
+                xi = (np.einsum('ij, j', self.tpcf_matrix, ngal_sq) /
+                      np.sum(ngal_sq))
             elif self.attrs['mode'] == 'cross':
                 xi = np.einsum('ij, j', self.tpcf_matrix, ngal) / np.sum(ngal)
-            return np.sum(ngal), xi
-        else:
+            return np.sum(ngal), xi.reshape(self.tpcf_shape)
 
-            if self.attrs['mode'] == 'auto':
-                xi = (self.tpcf_matrix * ngal_sq) / np.sum(ngal_sq)
-            elif self.attrs['mode'] == 'cross':
-                xi = (self.tpcf_matrix * ngal) / np.sum(ngal)
+        if self.attrs['mode'] == 'auto':
+            xi = (self.tpcf_matrix * ngal_sq) / np.sum(ngal_sq)
+        elif self.attrs['mode'] == 'cross':
+            xi = (self.tpcf_matrix * ngal) / np.sum(ngal)
 
-            ngal_dict = {}
-            xi_dict = {}
+        ngal_dict = {}
+        xi_dict = {}
 
+        for gal_type in np.unique(self.gal_type['gal_type']):
+            mask = self.gal_type['gal_type'] == gal_type
+            ngal_dict[gal_type] = np.sum(ngal[mask])
+
+        if self.attrs['mode'] == 'auto':
+            for gal_type_1, gal_type_2 in (
+                    itertools.combinations_with_replacement(
+                        np.unique(self.gal_type['gal_type']), 2)):
+                mask = symmetric_matrix_to_array(np.outer(
+                    gal_type_1 == self.gal_type['gal_type'],
+                    gal_type_2 == self.gal_type['gal_type']) |
+                        np.outer(
+                    gal_type_2 == self.gal_type['gal_type'],
+                    gal_type_1 == self.gal_type['gal_type']))
+                xi_dict['%s-%s' % (gal_type_1, gal_type_2)] = np.sum(
+                    xi * mask, axis=1).reshape(self.tpcf_shape)
+
+        elif self.attrs['mode'] == 'cross':
             for gal_type in np.unique(self.gal_type['gal_type']):
                 mask = self.gal_type['gal_type'] == gal_type
-                ngal_dict[gal_type] = np.sum(ngal[mask])
+                xi_dict[gal_type] = np.sum(
+                    xi * mask, axis=1).reshape(self.tpcf_shape)
 
-            if self.attrs['mode'] == 'auto':
-                for gal_type_1, gal_type_2 in (
-                        itertools.combinations_with_replacement(
-                            np.unique(self.gal_type['gal_type']), 2)):
-                    mask = symmetric_matrix_to_array(np.outer(
-                        gal_type_1 == self.gal_type['gal_type'],
-                        gal_type_2 == self.gal_type['gal_type']) |
-                            np.outer(
-                        gal_type_2 == self.gal_type['gal_type'],
-                        gal_type_1 == self.gal_type['gal_type']))
-                    xi_dict['%s-%s' % (gal_type_1, gal_type_2)] = np.sum(
-                        xi * mask, axis=1).reshape(self.tpcf_shape)
-
-            elif self.attrs['mode'] == 'cross':
-                for gal_type in np.unique(self.gal_type['gal_type']):
-                    mask = self.gal_type['gal_type'] == gal_type
-                    xi_dict[gal_type] = np.sum(
-                        xi * mask, axis=1).reshape(self.tpcf_shape)
-
-            return ngal_dict, xi_dict
+        return ngal_dict, xi_dict
 
 
-class TabCorrInterpolation:
+def sort_into_bins(log_prim_haloprop, log_prim_haloprop_bins,
+                   sec_haloprop_percentile, sec_haloprop_percentile_bins,
+                   x, gal_type=None):
+    """Sort an input array `x` into bins used by `TabCorr`.
 
-    def __init__(self, tabcorr_list, param_dict_table):
-        """
-        Initialize an interpolation of multiple TabCorr instances.
+    Parameters
+    ----------
+    log_prim_haloprop : numpy.ndarray
+        Primary halo property. Must have the same length at `x`.
+    log_prim_haloprop_bins : numpy.ndarray
+        Primary halo property bins.
+    sec_haloprop_percentile : numpy.ndarray
+        Secondary halo property percentiles. Must have the same length at `x`.
+    sec_haloprop_percentile_bins : numpy.ndarray
+        Secondary halo property percentile bins.
+    x : numpy.ndarray
+        Array to sort into bins.
+    gal_type : None or numpy.ndarray, optional
+        Galaxy types. If None, results are not sorted by galaxy type. Default
+        is None.
 
-        Parameters
-        ----------
-        tabcorr_list : array_like
-            TabCorr instances used to interpolate.
 
-        param_dict_table : astropy.table.Table
-            Table containing the keywords and values corresponding to the
-            TabCorr list. Must have the same length and ordering as
-            tabcorr_list.
-        """
+    Returns
+    -------
+        Values of `x` sorted into bins.
 
-        if len(tabcorr_list) != len(param_dict_table):
-            raise RuntimeError('The length of tabcorr_list does not match ' +
-                               'the number of entries in param_dict_table.')
+    """
+    n_p = len(log_prim_haloprop_bins) - 1
+    n_s = len(sec_haloprop_percentile_bins) - 1
 
-        self.keys = param_dict_table.colnames
-        self.n_dim = len(self.keys)
-        self.n_pts = len(param_dict_table)
-        self.tabcorr_list = tabcorr_list
+    i_prim = np.digitize(
+        log_prim_haloprop, bins=log_prim_haloprop_bins, right=False) - 1
+    i_sec = np.digitize(
+        sec_haloprop_percentile, bins=sec_haloprop_percentile_bins,
+        right=False) - 1
+    # Throw out those that don't fall into any bin.
+    x = x[~((i_prim < 0) | (i_prim >= n_p) | (i_sec < 0) | (i_sec >= n_s))]
 
-        if self.n_pts < self.n_dim + 1:
-            raise RuntimeError('The number of TabCorr instances provided ' +
-                               'must be at least the number of dimensions ' +
-                               'plus 1.')
+    if gal_type is not None:
+        i_type = np.where(gal_type == 'centrals', 0, 1)
+        n_t = 2
+    else:
+        i_type = 0
+        n_t = 1
 
-        if self.n_dim == 0:
-            raise RuntimeError('param_dict_table is empty.')
-        if self.n_dim == 1:
-            self.x = param_dict_table.columns[0].data
-        else:
-            self.x = np.empty((self.n_pts, self.n_dim))
-            for i, key in enumerate(param_dict_table.colnames):
-                self.x[:, i] = param_dict_table[key].data
-            self.delaunay = Delaunay(self.x)
+    i = (i_prim + i_sec * n_p + i_type * n_p * n_s)
+    x_sorted = x[np.argsort(i)]
+    counts = np.bincount(i, minlength=n_p * n_s * n_t)
+    counts = np.cumsum(counts)
+    counts = np.insert(counts, 0, 0)
 
-    def predict(self, model, extrapolate=True, **occ_kwargs):
-        """
-        Linearly interpolate the predictions from multiple TabCorr instances.
-        For example, this function can be used for predict correlation
-        functions for continues choices of concentrations for satellites.
-        Parameters to linearly interpolate over should be in the parameter
-        dictionary of the model.
+    return [x_sorted[counts[i]:counts[i+1]] for i in range(len(counts) - 1)]
 
-        Parameters
-        ----------
-        model : HodModelFactory
-            Instance of ``halotools.empirical_models.HodModelFactory``
-            describing the model for which predictions are made.
 
-        separate_gal_type : boolean, optional
-            If True, the return values are dictionaries divided by each galaxy
-            types contribution to the output result.
+def distribution_index(x_min, x_max, x_mean):
+    r"""Calculate an effective power-law index :math:`n`.
 
-        extrapolate : boolean, optional
-            Whether to allow extrapolation beyond points sampled by x. If set
-            to False, attempting to extrapolate will result in a RuntimeError.
+    :math:`n` is defined such that if :math:`p(x) = x^n` and is integrated over
+    `x_min` to `x_max`, it gives a certain mean `x_mean`.
 
-        **occ_kwargs : dict, optional
-                Keyword arguments passed to the ``mean_occupation`` functions
-                of the model.
+    Parameters
+    ----------
+    x_min : float
+        Lower bound of the integration range.
+    x_max : float
+        Upper bound of the integration range.
+    x_mean : float
+        Mean of the distribution.
 
-        Returns
-        -------
-        ngal : numpy.array or dict
-            Array containing the number densities for each galaxy type stored
-            in self.gal_type. The total galaxy number density is the sum of all
-            elements of this array.
-
-        xi : numpy.array or dict
-            Array storing the prediction for the correlation function.
-        """
-
-        x_model = np.empty(self.n_dim)
-        for i in range(self.n_dim):
-            try:
-                x_model[i] = model.param_dict[self.keys[i]]
-            except KeyError:
-                raise RuntimeError('key {} not present '.format(self.keys[i]) +
-                                   'in the parameter dictionary of the model.')
-
-        if self.n_dim > 1:
-
-            i_simplex = self.delaunay.find_simplex(x_model)
-
-            if i_simplex == -1:
-                if not extrapolate:
-                    raise RuntimeError('The parameters of the model are ' +
-                                       'outside of the interpolation range ' +
-                                       'and extrapolation is turned off.')
-                else:
-                    x_cm = np.mean(self.x[self.delaunay.simplices], axis=1)
-                    i_simplex = np.argmin(np.sum((x_model - x_cm)**2, axis=1))
-
-            simplex = self.delaunay.simplices[i_simplex]
-            b = self.delaunay.transform[i_simplex, :-1].dot(
-                x_model - self.delaunay.transform[i_simplex, -1])
-            w = np.append(b, 1 - np.sum(b))
-
-        else:
-
-            if np.any(x_model < self.x) and np.any(x_model > self.x):
-                simplex = [np.ma.MaskedArray.argmax(
-                    np.ma.masked_array(self.x, mask=(self.x > x_model))),
-                           np.ma.MaskedArray.argmin(
-                    np.ma.masked_array(self.x, mask=(self.x <= x_model)))]
-            else:
-                if not extrapolate:
-                    raise RuntimeError('The parameters of the model are ' +
-                                       'outside of the interpolation range ' +
-                                       'and extrapolation is turned off.')
-                else:
-                    simplex = np.argsort(np.abs(x_model - self.x))[:2]
-
-            w1 = (self.x[simplex[1]] - x_model[0]) / (
-                self.x[simplex[1]] - self.x[simplex[0]])
-            w = [w1, 1 - w1]
-
-        for i, k in enumerate(simplex):
-            ngal_i, xi_i = self.tabcorr_list[k].predict(model, **occ_kwargs)
-            if i == 0:
-                ngal = ngal_i * w[i]
-                xi = xi_i * w[i]
-            else:
-                ngal += ngal_i * w[i]
-                xi += xi_i * w[i]
-
-        return ngal, xi
+    Returns
+    -------
+        Index :math:`n` to reproduce the mean, but not smaller than -10 or
+        larger than +10.
+    """
+    x_max = x_max / x_min
+    x_mean = x_mean / x_min
+    n_interp = np.linspace(-10, +10, 100)
+    x_interp = ((n_interp + 1) / (n_interp + 2) * (x_max**(n_interp + 2) - 1) /
+                (x_max**(n_interp + 1) - 1))
+    return interp1d(x_interp, n_interp, kind='cubic', fill_value=(-10, +10),
+                    bounds_error=False)(x_mean)
 
 
 def symmetric_matrix_to_array(matrix, check_symmetry=True):
+    """Reduce a symmetric 2-dimensional matrix into 1-dimensional array.
 
+    Parameters
+    ----------
+    matrix : numpy.ndarray
+        Symmetric matrix
+    check_symmetry : bool, optional
+        Whether to check that `matrix` describes a symmetric matrix. Default is
+        True.
+
+    Returns
+    -------
+        Array containing all unique values of `matrix`.
+
+    Raises
+    ------
+    ValueError
+        If `matrix` is not a symmetric matrix and `check_symmetry` is True.
+
+    """
     if check_symmetry:
         try:
             assert matrix.shape[0] == matrix.shape[1]
             assert np.all(matrix == matrix.T)
         except AssertionError:
-            raise RuntimeError('The matrix you provided is not symmetric.')
+            raise ValueError('The matrix you provided is not symmetric.')
 
     n_dim = matrix.shape[0]
     sel = np.zeros((n_dim**2 + n_dim) // 2, dtype=np.int)
@@ -882,3 +781,119 @@ def symmetric_matrix_to_array(matrix, check_symmetry=True):
             i*n_dim, i*n_dim + i + 1)
 
     return matrix.ravel()[sel]
+
+
+GLOBAL_ARGS = {}
+
+
+def compute_tpcf(i):
+    """Compute the two-point correlation for a given sample of tracers.
+
+    Parameters
+    ----------
+    i : int or tuple
+        Which  samples to calculate the two-point correlation function for.
+
+    Returns
+    -------
+    i : int or tuple
+        Which samples the two-point correlation function was calculated for.
+    xi : numpy.ndarray
+        The two-point correlation function.
+
+    """
+    mode = GLOBAL_ARGS['mode']
+    pos = GLOBAL_ARGS['pos']
+    tpcf = GLOBAL_ARGS['tpcf']
+    period = GLOBAL_ARGS['period']
+    tpcf_args = GLOBAL_ARGS['tpcf_args']
+    tpcf_kwargs = GLOBAL_ARGS['tpcf_kwargs']
+
+    if mode == 'auto':
+        i_1, i_2 = i
+        if len(pos[i_1]) > len(pos[i_2]):
+            i_1, i_2 = i_2, i_1
+        return i, tpcf(pos[i_1], *tpcf_args, sample2=pos[i_2] if i_1 != i_2
+                       else None,  do_auto=(i_1 == i_2), do_cross=(i_1 != i_2),
+                       period=period, **tpcf_kwargs)
+    else:
+        return i, tpcf(pos[i], *tpcf_args, period=period, **tpcf_kwargs)
+
+
+def compute_tpcf_matrix(mode, pos, tpcf, period, tpcf_args, tpcf_kwargs,
+                        num_threads=1, verbose=False):
+    """Calculate the two-point correlation function matrix between all samples.
+
+    Parameters
+    ----------
+    mode : string
+        Whether an auto- ('auto') or a cross-correlation ('cross') function is
+        be tabulated.
+    pos : numpy.ndarray
+        Samples.
+    period : numpy.ndarray
+        Box size.
+    tpcf : function
+        The halotools correlation function for which values are tabulated. Can
+        also be a custom function as long as it follows the halotools syntax.
+    tpcf_args : tuple, optional
+        Positional arguments passed to the `tpcf` function.
+    tpcf_kwargs : dict, optional
+        Keyword arguments passed to the `tpcf` function.
+    num_threads : int, optional
+        How many threads to use for the tabulation. Default is 1.
+    verbose : bool, optional
+        Whether the progress should be displayed. Default is False.
+
+    Returns
+    -------
+    tpcf_matrix : numpy.ndarray
+        Two-point correlation function matrix. Two-dimensional if `mode` is
+        'cross' and three-dimensional if `mode` is 'auto'.
+    tpcf_shape : numpy.ndarray
+        Shape of the two-point correlation function returned by `tpcf`.
+
+    """
+    global GLOBAL_ARGS
+    GLOBAL_ARGS['mode'] = mode
+    GLOBAL_ARGS['pos'] = pos
+    GLOBAL_ARGS['tpcf'] = tpcf
+    GLOBAL_ARGS['period'] = period
+    GLOBAL_ARGS['tpcf_args'] = tpcf_args
+    GLOBAL_ARGS['tpcf_kwargs'] = tpcf_kwargs
+
+    tasks = [i for i in range(len(pos)) if len(pos[i]) > 0]
+
+    if mode == 'auto':
+        tasks = list(itertools.combinations_with_replacement(tasks, 2))
+
+    shuffle(tasks)
+
+    if verbose:
+        pbar = tqdm.tqdm(total=len(tasks), smoothing=0)
+
+    tpcf_matrix = None
+
+    with Pool(num_threads) as pool:
+        for i, xi in pool.imap_unordered(compute_tpcf, tasks):
+
+            if tpcf_matrix is None:
+                if mode == 'auto':
+                    tpcf_matrix = np.zeros(
+                        (len(xi.ravel()), len(pos), len(pos)))
+                else:
+                    tpcf_matrix = np.zeros((len(xi.ravel()), len(pos)))
+
+            if mode == 'auto':
+                i_1, i_2 = i
+                tpcf_matrix[:, i_1, i_2] += xi.ravel()
+                tpcf_matrix[:, i_2, i_1] = tpcf_matrix[:, i_1, i_2]
+            else:
+                tpcf_matrix[:, i] += xi.ravel()
+
+            if verbose:
+                pbar.update(1)
+
+            tpcf_shape = xi.shape
+
+    return tpcf_matrix, tpcf_shape

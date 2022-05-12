@@ -41,7 +41,8 @@ from tabcorr import TabCorr
 rp_bins = np.logspace(-1, 1, 20)
 
 halocat = CachedHaloCatalog(simname='bolplanck')
-halotab = TabCorr.tabulate(halocat, wp, rp_bins, pi_max=40)
+halotab = TabCorr.tabulate(halocat, wp, rp_bins, pi_max=40, verbose=True,
+                           num_threads=4)
 
 # We can save the result for later use.
 halotab.write('bolplanck.hdf5')
