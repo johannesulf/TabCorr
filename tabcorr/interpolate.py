@@ -146,8 +146,10 @@ class Interpolator:
                 xi[i] = xi_i
             ngal = ngal.reshape([len(xp) for xp in self.xp])
             xi = xi.reshape([len(xp) for xp in self.xp] + list(xi_i.shape))
-            return (spline_interpolate(x_model, self.xp, self.a, ngal),
-                    spline_interpolate(x_model, self.xp, self.a, xi))
+            return (spline_interpolate(x_model, self.xp, self.a, ngal,
+                                       extrapolate=extrapolate),
+                    spline_interpolate(x_model, self.xp, self.a, xi,
+                                       extrapolate=extrapolate))
 
         i_simplex = self.delaunay.find_simplex(x_model)
 
@@ -278,13 +280,13 @@ def spline_interpolate(x, xp, a, yp, extrapolate=False):
         i_spline = np.digitize(xi, xpi) - 1
         if xi == xpi[-1]:
             i_spline = len(xpi) - 2
-        if i_spline < 0 or i_spline > len(xpi) - 1:
+        if i_spline < 0 or i_spline >= len(xpi) - 1:
             if not extrapolate:
                 raise ValueError(
                     'The x-coordinates are outside of the interpolation ' +
                     'range and extrapolation is turned off.')
             else:
-                i_spline = min(max(i_spline, 0), len(xpi) - 1)
+                i_spline = min(max(i_spline, 0), len(xpi) - 2)
         yp = np.einsum('ij,j...,i', ai[i_spline], yp, xi**np.arange(4))
 
     return yp
