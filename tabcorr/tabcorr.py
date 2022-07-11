@@ -124,6 +124,7 @@ class TabCorr:
 
         Returns
         -------
+        halotab : tabcorr.TabCorr
             `TabCorr` object.
 
         Raises
@@ -474,6 +475,7 @@ class TabCorr:
 
         Returns
         -------
+        n : numpy.ndarray
             Array containing the mean occuaption numbers. Has the same length
             as `self.gal_type`.
 
@@ -686,6 +688,7 @@ def sort_into_bins(log_prim_haloprop, log_prim_haloprop_bins,
 
     Returns
     -------
+    x_sorted : list
         Values of `x` sorted into bins.
 
     """
@@ -733,6 +736,7 @@ def distribution_index(x_min, x_max, x_mean):
 
     Returns
     -------
+    n : float
         Index :math:`n` to reproduce the mean, but not smaller than -10 or
         larger than +10.
     """
@@ -758,6 +762,7 @@ def symmetric_matrix_to_array(matrix, check_symmetry=True):
 
     Returns
     -------
+    m_array : numpy.ndarray
         Array containing all unique values of `matrix`.
 
     Raises

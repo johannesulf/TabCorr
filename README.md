@@ -1,24 +1,17 @@
-# TabCorr - Tabulated Correlation functions for halotools
+# TabCorr: Tabulated Correlation Functions
+
+[![PyPI Version](https://img.shields.io/pypi/v/tabcorr?color=blue)](https://pypi.org/project/tabcorr/)
+[![License: MIT](https://img.shields.io/github/license/johannesulf/TabCorr?color=blue)](https://raw.githubusercontent.com/johannesulf/TabCorr/main/LICENSE)
+![Language: Python](https://img.shields.io/github/languages/top/johannesulf/TabCorr)
 
 This Python module provides extremely efficient and precise calculations of galaxy correlation functions in halotools using tabulated values. It is specifically intended for Markov chain monte carlo (MCMC) exploration of the galaxy-halo connection. It implements the method described in [Zheng & Guo (2016)](https://doi.org/10.1093/mnras/stw523) of tabulating correlation functions that only need to be convolved with the mean halo occupation to obtain the full correlation function of galaxies.
 
-## Prerequisites
-
-The following python packages (and their prerequisites) are required for running this module.
-
-* h5py
-* numpy
-* astropy
-* halotools
-
-This module has been tested with Python 3.x.
-
 ## Installation
 
-The package can be installed via pip using the following command.
+The package can be installed via pip.
 
 ```
-pip install git+https://github.com/johannesulf/TabCorr.git
+pip install tabcorr
 ```
 
 ## Usage
@@ -93,13 +86,10 @@ plt.ylabel(r'$w_p \ [h^{-1} \ \mathrm{Mpc}]$')
 plt.tight_layout(pad=0.3)
 plt.savefig('wp_vs_logm1.png', dpi=300)
 plt.close()
-
 ```
 
-The above code will generate the following figures.
-
-![wp_decomposition](scripts/wp_decomposition.png)
-![wp_vs_logm1](scripts/wp_vs_logm1.png)
+![](scripts/wp_decomposition.png)
+![](scripts/wp_vs_logm1.png)
 
 ## Author
 

@@ -78,8 +78,16 @@ class Interpolator:
                 self.xp[:, i] = self.param_dict_table[key].data
             self.delaunay = Delaunay(self.xp)
 
-    def predict(self, model, n_gauss_prim=10, extrapolate=False,
-                same_halos=False, **occ_kwargs):
+        # Determine unique halo tables such that we can save computation time
+        # if halo tables are repeated.
+        all_gal_type = [np.array(tabcorr.gal_type.as_array().tolist()).ravel()
+                        for tabcorr in tabcorr_list]
+        unique = np.unique(
+            all_gal_type, axis=0, return_index=True, return_inverse=True)
+        self.unique_gal_type_index = unique[1]
+        self.unique_gal_type_inverse = unique[2]
+
+    def predict(self, model, n_gauss_prim=10, extrapolate=False, **occ_kwargs):
         """Interpolate the predictions from multiple TabCorr instances.
 
         The values of parameters to interpolate should be in the parameter
@@ -97,11 +105,6 @@ class Interpolator:
         extrapolate : bool, optional
             Whether to allow extrapolation beyond points sampled by the input
             TabCorr instances. Default is False.
-        same_halos : bool, optional
-            If True, assume that all TabCorr instances are using the same
-            simulation and halo bins. This is typically the case if we want
-            to interpolate between phase-space parameters. Can speed up
-            calculation considerably. Default is False.
         **occ_kwargs : dict, optional
             Keyword arguments passed to the ``mean_occupation`` functions of
             the model.
@@ -130,14 +133,19 @@ class Interpolator:
                     'dictionary of the model.')
 
         if self.spline:
+
+            # Calculate the mean occupation numbers, avoiding to calculate
+            # those repeatedly for identical halo tables.
+            mean_occupation = [self.tabcorr_list[i].mean_occupation(
+                model, n_gauss_prim=n_gauss_prim, **occ_kwargs) for i in
+                self.unique_gal_type_index]
+
             for i in range(len(self.param_dict_table)):
-                tabcorr = self.tabcorr_list[
-                    self.param_dict_table['tabcorr_index'][i]]
-                if i == 0 and same_halos:
-                    model = tabcorr.mean_occupation(
-                        model, n_gauss_prim=n_gauss_prim, **occ_kwargs)
+                k = self.param_dict_table['tabcorr_index'][i]
+                tabcorr = self.tabcorr_list[k]
                 ngal_i, xi_i = tabcorr.predict(
-                    model, n_gauss_prim=n_gauss_prim, **occ_kwargs)
+                    mean_occupation[self.unique_gal_type_inverse[k]],
+                    n_gauss_prim=n_gauss_prim, **occ_kwargs)
                 if i == 0:
                     ngal = np.zeros(np.prod([len(xp) for xp in self.xp]))
                     xi = np.zeros([np.prod([len(xp) for xp in self.xp])] +
@@ -189,6 +197,7 @@ def spline_interpolation_matrix(xp):
 
     Returns
     -------
+    a : numpy.ndarray
         Matrix `a` such that ``np.einsum('ij,j,i', a[i], y, x0**np.arange(4))``
         is the value `i`-th spline evalualated at `x0`.
 
@@ -261,7 +270,8 @@ def spline_interpolate(x, xp, a, yp, extrapolate=False):
 
     Returns
     -------
-        Interpolated values with shape ``y.shape[len(x):]``.
+    yp : float or numpy.ndarray
+        Interpolated value(s) with shape ``y.shape[len(x):]``.
 
     Raises
     ------
