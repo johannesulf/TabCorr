@@ -9,23 +9,20 @@ from astropy.constants import G
 from tabcorr import TabCorr, database
 from tabcorr.corrfunc import wp, s_mu_tpcf
 from halotools.sim_manager import UserSuppliedHaloCatalog
+from halotools.sim_manager import UserSuppliedPtclCatalog
 from halotools.mock_observables import tpcf_multipole, mean_delta_sigma
 from halotools.empirical_models import TrivialPhaseSpace, BiasedNFWPhaseSpace
 
 
 def read_simulation_snapshot(
-        suite, redshift, i_cosmo=0, i_phase=None, config=None):
+        suite, redshift, i_cosmo=0, i_phase=0, config=None):
     name = database.simulation_name(
         suite, i_cosmo=i_cosmo, i_phase=i_phase, config=config)
     directory = database.simulation_snapshot_directory(
         suite, redshift, i_cosmo=i_cosmo, i_phase=i_phase, config=config)
     halos = Table.read(os.path.join(directory, 'snapshot.hdf5'),
                        path='halos')
-    try:
-        ptcls = Table.read(os.path.join(directory, 'snapshot.hdf5'),
-                           path='particles')
-    except OSError:
-        ptcls = None
+
     cosmology = database.cosmology(suite, i_cosmo=i_cosmo)
 
     if suite == 'AbacusSummit':
@@ -33,13 +30,24 @@ def read_simulation_snapshot(
         lbox = halos.meta['BoxSize']
         particle_mass = halos.meta['ParticleMassHMsun']
         halo_vmax = None
+        n_ptcls = halos.meta['ppd']**3
     else:
         mdef = '200m'
         lbox = 1050
         particle_mass = 3.51e10 * cosmology.Om0 / 0.3
         halo_vmax = halos['halo_vmax']
+        n_ptcls = 1400**3
 
-    return UserSuppliedHaloCatalog(
+    try:
+        ptcls = Table.read(os.path.join(directory, 'snapshot.hdf5'),
+                           path='particles')
+        ptcls = UserSuppliedPtclCatalog(
+            Lbox=lbox, redshift=redshift, particle_mass=particle_mass,
+            x=ptcls['x'].data, y=ptcls['y'].data, z=ptcls['z'].data)
+    except OSError:
+        ptcls = None
+
+    kwargs = dict(
         redshift=redshift, Lbox=lbox, particle_mass=particle_mass,
         simname=name, halo_x=halos['halo_x'], halo_y=halos['halo_y'],
         halo_z=halos['halo_z'], halo_vx=halos['halo_vx'],
@@ -50,9 +58,14 @@ def read_simulation_snapshot(
         halo_mvir=halos['halo_m{}'.format(mdef)],
         halo_rvir=halos['halo_r{}'.format(mdef)] * 1e-9,
         halo_hostid=np.arange(len(halos)), cosmology=cosmology,
-        halo_vmax=halo_vmax,
+        halo_vmax=halo_vmax, n_ptcls=n_ptcls,
         **{'halo_m{}'.format(mdef): halos['halo_m{}'.format(mdef)],
-           'halo_r{}'.format(mdef): halos['halo_r{}'.format(mdef)]}), ptcls
+           'halo_r{}'.format(mdef): halos['halo_r{}'.format(mdef)]})
+
+    if ptcls is not None:
+        kwargs['user_supplied_ptclcat'] = ptcls
+
+    return UserSuppliedHaloCatalog(**kwargs)
 
 
 class ScaledBiasedNFWPhaseSpace(BiasedNFWPhaseSpace):
@@ -106,7 +119,7 @@ def main():
     parser = argparse.ArgumentParser(
         description='Tabulate halo correlation functions.')
     parser.add_argument('suite', help='simulation suite',
-                        choices=['AemulusAlpha'])
+                        choices=['AemulusAlpha', 'AbacusSummit'])
     parser.add_argument('redshift', help='simulation redshift', type=float)
     parser.add_argument('--cosmo', help='simulation cosmology, default is 0',
                         type=int, default=0)
@@ -123,7 +136,7 @@ def main():
 
     config = database.configuration(args.tab_config)
 
-    halocat, ptcls = read_simulation_snapshot(
+    halocat = read_simulation_snapshot(
             args.suite, args.redshift, i_cosmo=args.cosmo, i_phase=args.phase,
             config=args.sim_config)
 
@@ -186,17 +199,18 @@ def main():
         else:
             num_ptcl_requirement = 99
 
-        kwargs = {'mode': mode, 'cens_prof_model': cens_prof_model,
-                  'sats_prof_model': sats_prof_model, 'verbose': False,
-                  'num_threads': multiprocessing.cpu_count(),
-                  'sats_per_prim_haloprop': config['sats_per_prim_haloprop'],
-                  'project_xyz': True,
-                  'prim_haloprop_bins': prim_haloprop_bins,
-                  'prim_haloprop_key': prim_haloprop_key,
-                  'sec_haloprop_key': sec_haloprop_key,
-                  'sec_haloprop_percentile_bins': sec_haloprop_percentile_bins,
-                  'cosmology_obs': config['cosmo_obs'],
-                  'Num_ptcl_requirement': num_ptcl_requirement}
+        kwargs = dict(
+            mode=mode, cens_prof_model=cens_prof_model,
+            sats_prof_model=sats_prof_model, verbose=False,
+            num_threads=multiprocessing.cpu_count(),
+            sats_per_prim_haloprop=config['sats_per_prim_haloprop'],
+            project_xyz=True, prim_haloprop_bins=prim_haloprop_bins,
+            prim_haloprop_key=prim_haloprop_key,
+            sec_haloprop_key=sec_haloprop_key,
+            sec_haloprop_percentile_bins=sec_haloprop_percentile_bins,
+            cosmology_obs=config['cosmo_obs'],
+            Num_ptcl_requirement=num_ptcl_requirement,
+            downsample=config['downsample'])
 
         if args.tpcf == 'xi':
             halotab_s_mu = TabCorr.tabulate(
@@ -216,12 +230,9 @@ def main():
 
         elif args.tpcf == 'ds':
 
+            ptcls = halocat.ptcl_table
             ptcl_pos = np.vstack([ptcls['x'], ptcls['y'], ptcls['z']]).T
-
-            if args.suite == 'AemulusAlpha':
-                n_ptcl_tot = 1400**3
-
-            downsampling_factor = n_ptcl_tot / float(len(ptcl_pos))
+            downsampling_factor = halocat.n_ptcls / float(len(ptcl_pos))
             ptcl_mass = halocat.particle_mass * downsampling_factor
 
             halotab = TabCorr.tabulate(
