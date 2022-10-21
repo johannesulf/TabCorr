@@ -1,4 +1,5 @@
 import os
+import gc
 import io
 import struct
 import requests
@@ -275,11 +276,19 @@ def read_abacus_summit_particles(simulation, redshift):
             ptcls_tmp = ptcls_tmp[
                 np.random.random(len(ptcls_tmp)) < 0.0005 / 0.03]
             ptcls.append(ptcls_tmp)
+            gc.collect()
 
     ptcls = vstack(ptcls)
-    ptcls['x'] = ptcls['pos'][:, 0]
-    ptcls['y'] = ptcls['pos'][:, 1]
-    ptcls['z'] = ptcls['pos'][:, 2]
+
+    path = os.path.join(
+        ABACUS_SUMMIT_PATH_BASE + simulation, 'info', 'abacus.par')
+    with open(path) as fstream:
+        line = fstream.readlines()[3]
+        assert 'BoxSize' in line
+        boxsize = float(line.split('=')[1])
+    ptcls['x'] = ptcls['pos'][:, 0] + boxsize / 2.0
+    ptcls['y'] = ptcls['pos'][:, 1] + boxsize / 2.0
+    ptcls['z'] = ptcls['pos'][:, 2] + boxsize / 2.0
     ptcls.remove_column('pos')
     return ptcls
 
