@@ -296,9 +296,11 @@ def read_abacus_summit_particles(simulation, redshift):
 def main():
 
     parser = argparse.ArgumentParser(
-        description='Download and convert an Aemulus Alpha simulation.')
+        description='Download/read and reduce an Aemulus Alpha or Abacus' +
+        'Summit simulation. For AbacusSummit, you need to run this script ' +
+        'on NERSC.')
     parser.add_argument('suite', help='simulation suite',
-                        choices=['AemulusAlpha'])
+                        choices=['AemulusAlpha', 'AbacusSummit'])
     parser.add_argument('redshift', help='simulation redshift', type=float)
     parser.add_argument('--cosmo', help='simulation cosmology, default is 0',
                         type=int, default=0)
@@ -314,7 +316,7 @@ def main():
     name = database.simulation_name(
         args.suite, i_cosmo=args.cosmo, i_phase=args.phase, config=args.config)
 
-    print('Downloading data for {} at z={:.2f}...'.format(name, args.redshift))
+    print('Parsing data for {} at z={:.2f}...'.format(name, args.redshift))
 
     path = database.simulation_snapshot_directory(
         args.suite, args.redshift, i_cosmo=args.cosmo, i_phase=args.phase,
@@ -326,10 +328,14 @@ def main():
         subpath = 'halos'
         if args.suite == 'AemulusAlpha':
             data = download_aemulus_alpha_halos(name, args.redshift)
+        else:
+            data = read_abacus_summit_halos(name, args.redshift)
     else:
         subpath = 'particles'
         if args.suite == 'AemulusAlpha':
             data = download_aemulus_alpha_particles(name, args.redshift)
+        else:
+            data = read_abacus_summit_particles(name, args.redshift)
 
     print('Writing results to {}.'.format(os.path.join(path, 'snapshot.hdf5')))
     data.write(os.path.join(path, 'snapshot.hdf5'), path=subpath,
