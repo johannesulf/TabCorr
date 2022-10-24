@@ -45,7 +45,8 @@ def configuration(config_str):
     config_dict['rp_wp_bins'] = {'default': np.logspace(-1.0, 1.8, 15),
                                  'aemulus': np.logspace(-1, 1.78, 10)}
     config_dict['pi_max'] = {'default': 80}
-    config_dict['rp_ds_bins'] = {'default': np.logspace(-1.0, 1.8, 15)}
+    config_dict['rp_ds_bins'] = {'default': np.logspace(-1.0, 1.8, 15),
+                                 'efficient': np.logspace(-1.0, 1.6, 14)}
     config_dict['mu_bins'] = {'default': np.linspace(0, 1, 21),
                               'aemulus': np.linspace(0, 1, 41)}
     config_dict['cosmo_obs'] = {'default': Planck15, 'aemulus': None}

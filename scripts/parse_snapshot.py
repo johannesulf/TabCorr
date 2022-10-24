@@ -274,7 +274,7 @@ def read_abacus_summit_particles(simulation, redshift):
                 '{}_rv_A_{:03d}.asdf'.format(ptcl_type, i))
             ptcls_tmp = read_asdf(path, load=['pos'])
             ptcls_tmp = ptcls_tmp[
-                np.random.random(len(ptcls_tmp)) < 0.0005 / 0.03]
+                np.random.random(len(ptcls_tmp)) < 0.00025 / 0.03]
             ptcls.append(ptcls_tmp)
             gc.collect()
 
