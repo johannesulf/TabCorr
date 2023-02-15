@@ -1,20 +1,31 @@
 import os
+import gc
 import io
 import struct
 import requests
 import argparse
 import numpy as np
 from tqdm import tqdm
-from astropy.table import Table
 from tabcorr import database
+from astropy import units as u
+from astropy.cosmology import w0waCDM
+from astropy.table import Table, vstack
 from collections import namedtuple
+from halotools.empirical_models import delta_vir
+from abacusnbody.data.read_abacus import read_asdf
+from abacusnbody.data.compaso_halo_catalog import CompaSOHaloCatalog
+
+
+ABACUS_SUMMIT_PATH_BASE = os.path.join(
+    '/', 'global', 'cfs', 'cdirs', 'desi', 'cosmosim', 'Abacus',
+    'AbacusSummit_')
 
 
 def read_gadget_snapshot(bstream, read_pos=False, read_vel=False,
                          read_id=False, read_mass=False, print_header=False,
                          single_type=-1, lgadget=False):
     """
-    This function reads the Gadget-2 snapshot file.
+    Read a Gadget-2 snapshot file.
 
     This is a modified version of the function readGadgetSnapshot by Yao-Yuan
     Mao licensed under the MIT License. (https://bitbucket.org/yymao/helpers)
@@ -211,12 +222,85 @@ def download_aemulus_alpha_particles(simulation, redshift):
                  names=('x', 'y', 'z'))
 
 
+def read_abacus_summit_halos(simulation, redshift):
+
+    fields = ['x_L2com', 'v_L2com', 'N', 'rvcirc_max_com']
+    halocat = CompaSOHaloCatalog(os.path.join(
+        ABACUS_SUMMIT_PATH_BASE + simulation, 'halos',
+        'z{:.3f}'.format(redshift)), fields=fields)
+    halocat.halos = halocat.halos[halocat.halos['N'] >= 300]
+    halos = halocat.halos
+
+    mdef = '{:.0f}m'.format(halocat.header['SODensityL1'])
+    halos['halo_m{}'.format(mdef)] = (
+        halos['N'] * halocat.header['ParticleMassHMsun'])
+    halos.remove_column('N')
+
+    halos['x_L2com'] += halocat.header['BoxSize'] / 2.0
+    halos['halo_x'] = halos['x_L2com'][:, 0]
+    halos['halo_y'] = halos['x_L2com'][:, 1]
+    halos['halo_z'] = halos['x_L2com'][:, 2]
+    halos.remove_column('x_L2com')
+
+    halos['halo_vx'] = halos['v_L2com'][:, 0]
+    halos['halo_vy'] = halos['v_L2com'][:, 1]
+    halos['halo_vz'] = halos['v_L2com'][:, 2]
+    halos.remove_column('v_L2com')
+
+    cosmology = w0waCDM(H0=halocat.header['H0'], Om0=halocat.header['Omega_M'],
+                        Ode0=halocat.header['Omega_DE'],
+                        w0=halocat.header['w0'], wa=halocat.header['wa'])
+    dvir = delta_vir(cosmology, redshift) * 200 / (18 * np.pi**2)
+    rho_crit = (cosmology.critical_density(redshift) /
+                (cosmology.H(0).value / 100)**2 / (1 + redshift)**3)
+    halocat.halos['halo_r{}'.format(mdef)] = ((
+        halocat.halos['halo_m{}'.format(mdef)] * u.M_sun / (
+            4.0 / 3.0 * np.pi * rho_crit * dvir))**(1.0 / 3.0)).to(u.Mpc).value
+
+    halos['rvcirc_max_com'] /= 2.16258
+    halos.rename_column('rvcirc_max_com', 'halo_rs')
+
+    return halos
+
+
+def read_abacus_summit_particles(simulation, redshift):
+    base_path = os.path.join(ABACUS_SUMMIT_PATH_BASE + simulation, 'halos',
+                             'z{:.3f}'.format(redshift))
+    ptcls = []
+    for ptcl_type in ['field', 'halo']:
+        for i in range(34):
+            path = os.path.join(
+                base_path, '{}_rv_A'.format(ptcl_type),
+                '{}_rv_A_{:03d}.asdf'.format(ptcl_type, i))
+            ptcls_tmp = read_asdf(path, load=['pos'])
+            ptcls_tmp = ptcls_tmp[
+                np.random.random(len(ptcls_tmp)) < 0.00025 / 0.03]
+            ptcls.append(ptcls_tmp)
+            gc.collect()
+
+    ptcls = vstack(ptcls)
+
+    path = os.path.join(
+        ABACUS_SUMMIT_PATH_BASE + simulation, 'info', 'abacus.par')
+    with open(path) as fstream:
+        line = fstream.readlines()[3]
+        assert 'BoxSize' in line
+        boxsize = float(line.split('=')[1])
+    ptcls['x'] = ptcls['pos'][:, 0] + boxsize / 2.0
+    ptcls['y'] = ptcls['pos'][:, 1] + boxsize / 2.0
+    ptcls['z'] = ptcls['pos'][:, 2] + boxsize / 2.0
+    ptcls.remove_column('pos')
+    return ptcls
+
+
 def main():
 
     parser = argparse.ArgumentParser(
-        description='Download and convert an Aemulus Alpha simulation.')
+        description='Download/read and reduce an Aemulus Alpha or Abacus' +
+        'Summit simulation. For AbacusSummit, you need to run this script ' +
+        'on NERSC.')
     parser.add_argument('suite', help='simulation suite',
-                        choices=['AemulusAlpha'])
+                        choices=['AemulusAlpha', 'AbacusSummit'])
     parser.add_argument('redshift', help='simulation redshift', type=float)
     parser.add_argument('--cosmo', help='simulation cosmology, default is 0',
                         type=int, default=0)
@@ -232,7 +316,7 @@ def main():
     name = database.simulation_name(
         args.suite, i_cosmo=args.cosmo, i_phase=args.phase, config=args.config)
 
-    print('Downloading data for {} at z={:.2f}...'.format(name, args.redshift))
+    print('Parsing data for {} at z={:.2f}...'.format(name, args.redshift))
 
     path = database.simulation_snapshot_directory(
         args.suite, args.redshift, i_cosmo=args.cosmo, i_phase=args.phase,
@@ -244,10 +328,14 @@ def main():
         subpath = 'halos'
         if args.suite == 'AemulusAlpha':
             data = download_aemulus_alpha_halos(name, args.redshift)
+        else:
+            data = read_abacus_summit_halos(name, args.redshift)
     else:
         subpath = 'particles'
         if args.suite == 'AemulusAlpha':
             data = download_aemulus_alpha_particles(name, args.redshift)
+        else:
+            data = read_abacus_summit_particles(name, args.redshift)
 
     print('Writing results to {}.'.format(os.path.join(path, 'snapshot.hdf5')))
     data.write(os.path.join(path, 'snapshot.hdf5'), path=subpath,

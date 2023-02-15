@@ -34,7 +34,7 @@ def configuration(config_str):
     config_list = config_str.split('_')
 
     for config in config_list:
-        if config not in ['aemulus', 'default']:
+        if config not in ['aemulus', 'default', 'efficient']:
             raise ValueError('Unkown configuration {}.'.format(config))
 
     config_list.append('default')
@@ -45,7 +45,8 @@ def configuration(config_str):
     config_dict['rp_wp_bins'] = {'default': np.logspace(-1.0, 1.8, 15),
                                  'aemulus': np.logspace(-1, 1.78, 10)}
     config_dict['pi_max'] = {'default': 80}
-    config_dict['rp_ds_bins'] = {'default': np.logspace(-1.0, 1.8, 15)}
+    config_dict['rp_ds_bins'] = {'default': np.logspace(-1.0, 1.8, 15),
+                                 'efficient': np.logspace(-1.0, 1.6, 14)}
     config_dict['mu_bins'] = {'default': np.linspace(0, 1, 21),
                               'aemulus': np.linspace(0, 1, 41)}
     config_dict['cosmo_obs'] = {'default': Planck15, 'aemulus': None}
@@ -53,7 +54,10 @@ def configuration(config_str):
     config_dict['alpha_s_bins'] = {'default': np.linspace(0.8, 1.2, 4)}
     config_dict['conc_gal_bias_bins'] = {
         'default': np.geomspace(1.0 / 3.0, 3.0, 4)}
-    config_dict['sats_per_prim_haloprop'] = {'default': 2e-13}
+    config_dict['sats_per_prim_haloprop'] = {'default': 2e-13,
+                                             'efficient': 1e-13}
+    config_dict['downsample'] = {'default': 1.0,
+                                 'efficient': (lambda x: x / 1e13)}
 
     for parameter in config_dict.keys():
         for config in config_list:
