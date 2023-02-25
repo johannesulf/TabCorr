@@ -779,7 +779,7 @@ def symmetric_matrix_to_array(matrix, check_symmetry=True):
             raise ValueError('The matrix you provided is not symmetric.')
 
     n_dim = matrix.shape[0]
-    sel = np.zeros((n_dim**2 + n_dim) // 2, dtype=np.int)
+    sel = np.zeros((n_dim**2 + n_dim) // 2, dtype=int)
 
     for i in range(matrix.shape[0]):
         sel[(i*(i+1))//2:(i*(i+1))//2+(i+1)] = np.arange(
