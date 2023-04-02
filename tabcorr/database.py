@@ -34,7 +34,7 @@ def configuration(config_str):
     config_list = config_str.split('_')
 
     for config in config_list:
-        if config not in ['aemulus', 'default', 'efficient']:
+        if config not in ['aemulus', 'default', 'efficient', 'beyond-2pt']:
             raise ValueError('Unkown configuration {}.'.format(config))
 
     config_list.append('default')
