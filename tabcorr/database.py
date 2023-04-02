@@ -49,7 +49,8 @@ def configuration(config_str):
                                  'efficient': np.logspace(-1.0, 1.6, 14)}
     config_dict['mu_bins'] = {'default': np.linspace(0, 1, 21),
                               'aemulus': np.linspace(0, 1, 41)}
-    config_dict['cosmo_obs'] = {'default': Planck15, 'aemulus': None}
+    config_dict['cosmo_obs'] = {'default': Planck15, 'aemulus': None,
+                                'beyond-2pt': None}
     config_dict['alpha_c_bins'] = {'default': np.linspace(0.0, 0.4, 4)}
     config_dict['alpha_s_bins'] = {'default': np.linspace(0.8, 1.2, 4)}
     config_dict['conc_gal_bias_bins'] = {
