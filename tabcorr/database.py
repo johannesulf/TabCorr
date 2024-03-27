@@ -73,7 +73,7 @@ def directory():
 
     Returns
     -------
-    dir : str
+    path : str
         The TabCorr database directory.
 
     Raises
@@ -101,7 +101,7 @@ def cosmology(suite, i_cosmo=0):
 
     Returns
     -------
-    cosmo : str
+    cosmo : astropy.cosmology.Cosmology
         The TabCorr database directory.
 
     Raises
@@ -166,7 +166,7 @@ def simulation_name(suite, i_cosmo=0, i_phase=0, config=None):
     i_phase : int, optional
         If applicable, number corresponding to the simulation phase. Default
         is 0.
-    config : str
+    config : str, optional
         Simulation configuration. Only applicable to AbacusSummit. If None,
         will default to 'base' for AbacusSummit. Default is None.
 
@@ -221,13 +221,13 @@ def simulation_snapshot_directory(
     i_phase : int, optional
         If applicable, number corresponding to the simulation phase. Default
         is 0.
-    config : str
+    config : str, optional
         Simulation configuration. Only applicable to AbacusSummit. If None,
         will default to 'base' for AbacusSummit. Default is None.
 
     Returns
     -------
-    name : str
+    path : str
         The directory where all data for a simulation snapshot is stored.
 
     """
@@ -238,9 +238,9 @@ def simulation_snapshot_directory(
         '{:.2f}'.format(redshift).replace('.', 'p'))
 
 
-def tabcorr(suite, redshift, tpcf, i_cosmo=0, i_phase=0, sim_config=None,
-            tab_config='default'):
-    """Return the TabCorr tabulation for a given simulation, redshift etc.
+def read(suite, redshift, tpcf, i_cosmo=0, i_phase=0, sim_config=None,
+         tab_config='default'):
+    """Read the TabCorr tabulation for a given simulation, redshift etc.
 
     Parameters
     ----------
@@ -255,10 +255,10 @@ def tabcorr(suite, redshift, tpcf, i_cosmo=0, i_phase=0, sim_config=None,
     i_phase : int, optional
         If applicable, number corresponding to the simulation phase. Default
         is 0.
-    sim_config : str
+    sim_config : str, optional
         Simulation configuration. Only applicable to AbacusSummit. If None,
         will default to 'base' for AbacusSummit. Default is None.
-    tab_config : config_str : str
+    tab_config : config_str : str, optional
         String describing the configuration of the tabulation, i.e. binning,
         cosmology etc.
 
@@ -282,3 +282,7 @@ def tabcorr(suite, redshift, tpcf, i_cosmo=0, i_phase=0, sim_config=None,
     tabcorr_list = [TabCorr.read(os.path.join(directory, '{}_{}.hdf5'.format(
         tpcf, i))) for i in range(len(param_dict_table))]
     return Interpolator(tabcorr_list, param_dict_table)
+
+
+# Define an alias for backwards compatibility.
+tabcorr = read
