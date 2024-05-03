@@ -8,7 +8,7 @@ from astropy.table import Table
 from astropy.cosmology import Flatw0waCDM, FlatwCDM, Planck15
 from pathlib import Path
 
-from . import TabCorr, Interpolator
+from . import Interpolator
 
 
 def configuration(config_str):
@@ -93,8 +93,7 @@ def cosmology(suite, i_cosmo=0):
 
     """
     if suite == 'AbacusSummit':
-        table = Table.read(os.path.join(
-            os.path.dirname(os.path.realpath(__file__)), 'as_cosmos.csv'))
+        table = Table.read(Path(__file__).absolute().parent / 'as_cosmos.csv')
         table['i_cosmo'] = np.array([r[-3:] for r in table['root']], dtype=int)
         if i_cosmo not in table['i_cosmo']:
             raise ValueError('Cosmology number {} not in AbacusSummit.'.format(
@@ -114,14 +113,13 @@ def cosmology(suite, i_cosmo=0):
             m_nu=m_nu, Tcmb0=2.7255 * u.K)
 
     elif suite == 'AemulusAlpha':
-        path = os.path.dirname(os.path.realpath(__file__))
+        path = Path(__file__).absolute().parent
         if i_cosmo >= 0 and i_cosmo < 40:
             cosmo_dict = dict(Table.read(
-                os.path.join(path, 'aa_cosmos.txt'), format='ascii')[i_cosmo])
+                path / 'aa_cosmos.txt', format='ascii')[i_cosmo])
         elif i_cosmo >= 0 and i_cosmo < 47:
-            cosmo_dict = dict(Table.read(
-                os.path.join(path, 'aa_test_cosmos.txt'), format='ascii')[
-                    i_cosmo - 40])
+            cosmo_dict = dict(Table.read(path / 'aa_test_cosmos.txt',
+                                         format='ascii')[i_cosmo - 40])
         else:
             raise ValueError('Unknown cosmology number {}. '.format(i_cosmo) +
                              'Must be in the range from 0 to 46.')
@@ -188,8 +186,7 @@ def simulation_name(suite, i_cosmo=0, i_phase=0, config=None):
         raise ValueError('Unkown simulation suite {}.'.format(suite))
 
 
-def directory(
-        suite, redshift, i_cosmo=0, i_phase=0, config=None):
+def directory(suite, redshift, i_cosmo=0, i_phase=0, config=None):
     """Return the directory where all data for a simulation snapshot is stored.
 
     Parameters
