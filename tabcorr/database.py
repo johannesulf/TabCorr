@@ -1,11 +1,14 @@
 """Module providing database capabilities."""
 
-import os
 import numpy as np
+import os
+
 from astropy import units as u
 from astropy.table import Table
-from . import TabCorr, Interpolator
 from astropy.cosmology import Flatw0waCDM, FlatwCDM, Planck15
+from pathlib import Path
+
+from . import TabCorr, Interpolator
 
 
 def configuration(config_str):
@@ -66,27 +69,6 @@ def configuration(config_str):
                 break
 
     return config_dict
-
-
-def directory():
-    """Return the TabCorr database directory.
-
-    Returns
-    -------
-    path : str
-        The TabCorr database directory.
-
-    Raises
-    ------
-    RuntimeError
-        If the TABCORR_DATABASE environment variable is not set.
-
-    """
-    try:
-        return os.environ['TABCORR_DATABASE']
-    except KeyError:
-        raise RuntimeError(
-            "You must set the TABCORR_DATABASE environment variable.")
 
 
 def cosmology(suite, i_cosmo=0):
@@ -206,7 +188,7 @@ def simulation_name(suite, i_cosmo=0, i_phase=0, config=None):
         raise ValueError('Unkown simulation suite {}.'.format(suite))
 
 
-def simulation_snapshot_directory(
+def directory(
         suite, redshift, i_cosmo=0, i_phase=0, config=None):
     """Return the directory where all data for a simulation snapshot is stored.
 
@@ -227,15 +209,24 @@ def simulation_snapshot_directory(
 
     Returns
     -------
-    path : str
+    path : pathlib.Path
         The directory where all data for a simulation snapshot is stored.
 
+    Raises
+    ------
+    RuntimeError
+        If the TABCORR_DATABASE environment variable is not set.
+
     """
+    try:
+        path = Path(os.environ['TABCORR_DATABASE'])
+    except KeyError:
+        raise RuntimeError(
+            "You must set the TABCORR_DATABASE environment variable.")
     name = simulation_name(suite, i_cosmo=i_cosmo, i_phase=i_phase,
                            config=config)
-    return os.path.join(
-        directory(), suite, name,
-        '{:.2f}'.format(redshift).replace('.', 'p'))
+    return (path / suite / name / '{:.2f}'.format(redshift).replace(
+        '.', 'p'))
 
 
 def read(suite, redshift, tpcf, i_cosmo=0, i_phase=0, sim_config=None,
@@ -268,20 +259,10 @@ def read(suite, redshift, tpcf, i_cosmo=0, i_phase=0, sim_config=None,
         The tabcorr tabulation.
 
     """
-    directory = os.path.join(simulation_snapshot_directory(
-        suite, redshift, i_cosmo=i_cosmo, i_phase=i_phase, config=sim_config),
-        tab_config)
+    path = directory(
+        suite, redshift, i_cosmo=i_cosmo, i_phase=i_phase, config=sim_config)
 
-    param_dict_table = Table.read(os.path.join(
-        directory, tpcf[:2] + '_grid.csv'))
-    param_dict_table['log_eta'] = np.log10(param_dict_table['conc_gal_bias'])
-    param_dict_table.remove_column('conc_gal_bias')
-    for key in ['alpha_c', 'alpha_s', 'log_eta']:
-        if len(np.unique(param_dict_table[key])) == 1:
-            param_dict_table.remove_column(key)
-    tabcorr_list = [TabCorr.read(os.path.join(directory, '{}_{}.hdf5'.format(
-        tpcf, i))) for i in range(len(param_dict_table))]
-    return Interpolator(tabcorr_list, param_dict_table)
+    return Interpolator.read(path / '{}_{}.hdf5'.format(tpcf, tab_config))
 
 
 # Define an alias for backwards compatibility.

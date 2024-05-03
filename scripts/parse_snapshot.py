@@ -1,24 +1,24 @@
-import os
+import argparse
 import gc
 import io
-import struct
-import requests
-import argparse
 import numpy as np
-from tqdm import tqdm
-from tabcorr import database
+import os
+import requests
+import struct
+
+from abacusnbody.data.read_abacus import read_asdf
+from abacusnbody.data.compaso_halo_catalog import CompaSOHaloCatalog
 from astropy import units as u
 from astropy.cosmology import w0waCDM
 from astropy.table import Table, vstack
 from collections import namedtuple
 from halotools.empirical_models import delta_vir
-from abacusnbody.data.read_abacus import read_asdf
-from abacusnbody.data.compaso_halo_catalog import CompaSOHaloCatalog
+from pathlib import Path
+from tabcorr import database
+from tqdm import tqdm
 
 
-ABACUS_SUMMIT_PATH_BASE = os.path.join(
-    '/', 'global', 'cfs', 'cdirs', 'desi', 'cosmosim', 'Abacus',
-    'AbacusSummit_')
+ABACUS_SUMMIT_PATH_BASE = Path('/global/cfs/cdirs/desi/cosmosim/Abacus')
 
 
 def read_gadget_snapshot(bstream, read_pos=False, read_vel=False,
@@ -225,9 +225,9 @@ def download_aemulus_alpha_particles(simulation, redshift):
 def read_abacus_summit_halos(simulation, redshift):
 
     fields = ['x_L2com', 'v_L2com', 'N', 'rvcirc_max_com']
-    halocat = CompaSOHaloCatalog(os.path.join(
-        ABACUS_SUMMIT_PATH_BASE + simulation, 'halos',
-        'z{:.3f}'.format(redshift)), fields=fields)
+    halocat = CompaSOHaloCatalog(
+        ABACUS_SUMMIT_PATH_BASE / 'AbacusSummit_{}'.format(simulation) /
+        'halos' / 'z{:.3f}'.format(redshift), fields=fields)
     halocat.halos = halocat.halos[halocat.halos['N'] >= 300]
     halos = halocat.halos
 
@@ -264,13 +264,14 @@ def read_abacus_summit_halos(simulation, redshift):
 
 
 def read_abacus_summit_particles(simulation, redshift):
-    base_path = os.path.join(ABACUS_SUMMIT_PATH_BASE + simulation, 'halos',
-                             'z{:.3f}'.format(redshift))
+
     ptcls = []
     for ptcl_type in ['field', 'halo']:
         for i in range(34):
-            path = os.path.join(
-                base_path, '{}_rv_A'.format(ptcl_type),
+            path = (
+                ABACUS_SUMMIT_PATH_BASE / 'AbacusSummit_{}'.format(
+                    simulation) / 'halos' / 'z{:.3f}'.format(redshift) /
+                '{}_rv_A'.format(ptcl_type) /
                 '{}_rv_A_{:03d}.asdf'.format(ptcl_type, i))
             ptcls_tmp = read_asdf(path, load=['pos'])
             ptcls_tmp = ptcls_tmp[
@@ -280,8 +281,8 @@ def read_abacus_summit_particles(simulation, redshift):
 
     ptcls = vstack(ptcls)
 
-    path = os.path.join(
-        ABACUS_SUMMIT_PATH_BASE + simulation, 'info', 'abacus.par')
+    path = (ABACUS_SUMMIT_PATH_BASE / 'AbacusSummit_{}'.format(
+        simulation) / 'info' / 'abacus.par')
     with open(path) as fstream:
         line = fstream.readlines()[3]
         assert 'BoxSize' in line
@@ -321,8 +322,7 @@ def main():
     path = database.simulation_snapshot_directory(
         args.suite, args.redshift, i_cosmo=args.cosmo, i_phase=args.phase,
         config=args.config)
-    if not os.path.isdir(path):
-        os.makedirs(path)
+    path.mkdir(parents=True, exist_ok=True)
 
     if not args.particles:
         subpath = 'halos'
@@ -337,9 +337,9 @@ def main():
         else:
             data = read_abacus_summit_particles(name, args.redshift)
 
-    print('Writing results to {}.'.format(os.path.join(path, 'snapshot.hdf5')))
-    data.write(os.path.join(path, 'snapshot.hdf5'), path=subpath,
-               overwrite=True, append=True)
+    print('Writing results to {}.'.format(path / 'snapshot.hdf5'))
+    data.write(path / 'snapshot.hdf5', path=subpath, overwrite=True,
+               append=True)
     print('Done!')
 
 

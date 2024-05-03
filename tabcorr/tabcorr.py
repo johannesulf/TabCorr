@@ -20,9 +20,6 @@ from halotools.utils.table_utils import compute_conditional_percentiles
 class TabCorr:
     """Class to tabulate halo and predict galaxy correlation functions."""
 
-    def __init__(self):
-        self.init = False
-
     @classmethod
     def tabulate(cls, halocat, tpcf, *tpcf_args,
                  mode='auto',
@@ -381,8 +378,8 @@ class TabCorr:
 
         Parameters
         ----------
-        fname : string
-            Name of the file containing the TabCorr object.
+        fname : string or h5py.Group
+            Name of the file or h5py group containing the TabCorr object.
 
         Returns
         -------
@@ -391,7 +388,11 @@ class TabCorr:
         """
         halotab = cls()
 
-        fstream = h5py.File(fname, 'r')
+        if not isinstance(fname, h5py.Group):
+            fstream = h5py.File(fname, 'r')
+        else:
+            fstream = fname
+
         halotab.attrs = {}
         for key in fstream.attrs.keys():
             halotab.attrs[key] = fstream.attrs[key]
@@ -407,11 +408,11 @@ class TabCorr:
             for key in fstream['tpcf_kwargs'].keys():
                 halotab.tpcf_kwargs[key] = fstream['tpcf_kwargs'][key][()]
         halotab.tpcf_shape = tuple(fstream['tpcf_shape'][()])
-        fstream.close()
+
+        if not isinstance(fname, h5py.Group):
+            fstream.close()
 
         halotab.gal_type = Table.read(fname, path='gal_type')
-
-        halotab.init = True
 
         return halotab
 
@@ -421,8 +422,8 @@ class TabCorr:
 
         Parameters
         ----------
-        fname : string
-            Name of the file that is written.
+        fname : string or h5py.Group
+            Name of the file or h5py group the data is written to.
         overwrite : bool, optional
             If True, any existing file will be overwritten. Default is False.
         max_args_size : int, optional
@@ -435,7 +436,10 @@ class TabCorr:
             to save space at the expense of precision.
 
         """
-        fstream = h5py.File(fname, 'w' if overwrite else 'w-')
+        if not isinstance(fname, h5py.Group):
+            fstream = h5py.File(fname, 'w' if overwrite else 'w-')
+        else:
+            fstream = fname
 
         keys = ['tpcf', 'mode', 'simname', 'redshift', 'Num_ptcl_requirement',
                 'prim_haloprop_key', 'sec_haloprop_key']
@@ -453,7 +457,9 @@ class TabCorr:
                     np.prod(self.tpcf_kwargs[key].shape) < max_args_size):
                 fstream['tpcf_kwargs/' + key] = self.tpcf_kwargs[key]
         fstream['tpcf_shape'] = self.tpcf_shape
-        fstream.close()
+
+        if not isinstance(fname, h5py.Group):
+            fstream.close()
 
         self.gal_type.write(fname, path='gal_type', append=True)
 
@@ -649,7 +655,7 @@ class TabCorr:
                 mask = symmetric_matrix_to_array(np.outer(
                     gal_type_1 == self.gal_type['gal_type'],
                     gal_type_2 == self.gal_type['gal_type']) |
-                        np.outer(
+                    np.outer(
                     gal_type_2 == self.gal_type['gal_type'],
                     gal_type_1 == self.gal_type['gal_type']))
                 xi_dict['%s-%s' % (gal_type_1, gal_type_2)] = np.sum(
@@ -684,7 +690,6 @@ def sort_into_bins(log_prim_haloprop, log_prim_haloprop_bins,
     gal_type : None or numpy.ndarray, optional
         Galaxy types. If None, results are not sorted by galaxy type. Default
         is None.
-
 
     Returns
     -------

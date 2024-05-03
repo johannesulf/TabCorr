@@ -1,7 +1,7 @@
 """Tabulated Correlation Functions"""
 
 from .tabcorr import TabCorr
-from .interpolate import Interpolator
+from .interpolator import Interpolator
 from . import corrfunc
 from . import database
 

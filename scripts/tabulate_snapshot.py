@@ -1,27 +1,27 @@
-import os
-import copy
 import argparse
-import numpy as np
-import multiprocessing
 import astropy.units as u
-from astropy.table import Table
+import copy
+import multiprocessing
+import numpy as np
+
 from astropy.constants import G
-from tabcorr import TabCorr, database
-from tabcorr.corrfunc import wp, s_mu_tpcf
+from astropy.table import Table
+from halotools.empirical_models import TrivialPhaseSpace, BiasedNFWPhaseSpace
+from halotools.mock_observables import tpcf_multipole, mean_delta_sigma
 from halotools.sim_manager import UserSuppliedHaloCatalog
 from halotools.sim_manager import UserSuppliedPtclCatalog
-from halotools.mock_observables import tpcf_multipole, mean_delta_sigma
-from halotools.empirical_models import TrivialPhaseSpace, BiasedNFWPhaseSpace
+from tabcorr import TabCorr, Interpolator, database
+from tabcorr.corrfunc import wp, s_mu_tpcf
 
 
 def read_simulation_snapshot(
         suite, redshift, i_cosmo=0, i_phase=0, config=None):
     name = database.simulation_name(
         suite, i_cosmo=i_cosmo, i_phase=i_phase, config=config)
-    directory = database.simulation_snapshot_directory(
-        suite, redshift, i_cosmo=i_cosmo, i_phase=i_phase, config=config)
-    halos = Table.read(os.path.join(directory, 'snapshot.hdf5'),
-                       path='halos')
+    path = (database.directory(
+        suite, redshift, i_cosmo=i_cosmo, i_phase=i_phase, config=config) /
+        'snapshot.hdf5')
+    halos = Table.read(path, path='halos')
 
     cosmology = database.cosmology(suite, i_cosmo=i_cosmo)
 
@@ -39,8 +39,7 @@ def read_simulation_snapshot(
         n_ptcls = 1400**3
 
     try:
-        ptcls = Table.read(os.path.join(directory, 'snapshot.hdf5'),
-                           path='particles')
+        ptcls = Table.read(path, path='particles')
         ptcls = UserSuppliedPtclCatalog(
             Lbox=lbox, redshift=redshift, particle_mass=particle_mass,
             x=ptcls['x'].data, y=ptcls['y'].data, z=ptcls['z'].data)
@@ -137,8 +136,8 @@ def main():
     config = database.configuration(args.tab_config)
 
     halocat = read_simulation_snapshot(
-            args.suite, args.redshift, i_cosmo=args.cosmo, i_phase=args.phase,
-            config=args.sim_config)
+        args.suite, args.redshift, i_cosmo=args.cosmo, i_phase=args.phase,
+        config=args.sim_config)
 
     for key in halocat.halo_table.colnames:
         if key[:6] == 'halo_m' and key[-1] == 'm':
@@ -151,11 +150,10 @@ def main():
         config['alpha_c_bins'] = [0.0]
         config['alpha_s_bins'] = [1.0]
 
-    path = os.path.join(database.simulation_snapshot_directory(
+    path = database.directory(
         args.suite, args.redshift, i_cosmo=args.cosmo, i_phase=args.phase,
-        config=args.sim_config), args.tab_config)
-    if not os.path.isdir(path):
-        os.makedirs(path)
+        config=args.sim_config) / args.tab_config
+    path.mkdir(parents=True, exist_ok=True)
 
     phase_space_grid = np.array(np.meshgrid(
         config['alpha_c_bins'], config['alpha_s_bins'],
@@ -164,7 +162,7 @@ def main():
     table['alpha_c'] = phase_space_grid[:, 0]
     table['alpha_s'] = phase_space_grid[:, 1]
     table['conc_gal_bias'] = phase_space_grid[:, 2]
-    table.write(os.path.join(path, args.tpcf + '_grid.csv'), overwrite=True)
+    table.write(path / '{}_grid.csv'.format(args.tpcf), overwrite=True)
 
     for i, (alpha_c, alpha_s, conc_gal_bias) in enumerate(phase_space_grid):
 
@@ -201,7 +199,7 @@ def main():
 
         kwargs = dict(
             mode=mode, cens_prof_model=cens_prof_model,
-            sats_prof_model=sats_prof_model, verbose=False,
+            sats_prof_model=sats_prof_model, verbose=True,
             num_threads=multiprocessing.cpu_count(),
             sats_per_prim_haloprop=config['sats_per_prim_haloprop'],
             project_xyz=True, prim_haloprop_bins=prim_haloprop_bins,
@@ -219,14 +217,13 @@ def main():
             for order in [0, 2, 4]:
                 halotab_multipole = tabcorr_s_mu_to_multipole(
                     halotab_s_mu, config['mu_bins'], order)
-                halotab_multipole.write(os.path.join(
-                    path, 'xi{}_{}.hdf5'.format(order, i)), overwrite=True)
+                halotab_multipole.write(
+                    path / 'xi{}_{}.hdf5'.format(order, i), overwrite=True)
 
         elif args.tpcf == 'wp':
             halotab = TabCorr.tabulate(
                 halocat, wp, config['rp_wp_bins'], config['pi_max'], **kwargs)
-            halotab.write(os.path.join(path, 'wp_{}.hdf5'.format(i)),
-                          overwrite=True)
+            halotab.write(path / 'wp_{}.hdf5'.format(i), overwrite=True)
 
         elif args.tpcf == 'ds':
 
@@ -238,8 +235,23 @@ def main():
             halotab = TabCorr.tabulate(
                 halocat, mean_delta_sigma, ptcl_pos, ptcl_mass,
                 config['rp_ds_bins'], **kwargs)
-            halotab.write(os.path.join(path, 'ds_{}.hdf5'.format(i)),
-                          overwrite=True)
+            halotab.write(path / 'ds_{}.hdf5'.format(i), overwrite=True)
+
+    param_dict_table = Table.read(path / '{}_grid.csv'.format(args.tpcf))
+    param_dict_table['log_eta'] = np.log10(
+        param_dict_table['conc_gal_bias'])
+    param_dict_table.remove_column('conc_gal_bias')
+    for key in ['alpha_c', 'alpha_s', 'log_eta']:
+        if len(np.unique(param_dict_table[key])) == 1:
+            param_dict_table.remove_column(key)
+    for tpcf in [args.tpcf] if args.tpcf != 'xi' else ['xi0', 'xi2', 'xi4']:
+        tabcorr_list = [TabCorr.read(path / '{}_{}.hdf5'.format(
+            tpcf, i)) for i in range(len(param_dict_table))]
+        halotab = Interpolator(tabcorr_list, param_dict_table, spline=True)
+        halotab.write(database.directory(
+            args.suite, args.redshift, i_cosmo=args.cosmo, i_phase=args.phase,
+            config=args.sim_config) / '{}_{}.hdf5'.format(
+            tpcf, args.tab_config))
 
 
 if __name__ == "__main__":
