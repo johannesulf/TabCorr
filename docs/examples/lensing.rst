@@ -1,7 +1,7 @@
 Galaxy-Galaxy Lensing
 =====================
 
-One can use ``TabCorr`` not only to compute galaxy clustering but also galaxy-galaxy lensing, a cross-correlation of the galaxies with the matter density field. To "tabulate" lensing for BolshoiP we can use the following code snippet.
+One can use ``TabCorr`` not only to compute galaxy clustering but also galaxy-galaxy lensing, a cross-correlation of the galaxies with the matter density field. To "tabulate" lensing for BolshoiP, we can use the following code snippet.
 
 .. code-block:: python
 
@@ -25,7 +25,7 @@ One can use ``TabCorr`` not only to compute galaxy clustering but also galaxy-ga
         halocat, mean_delta_sigma, pos_ptcl, effective_particle_mass, rp_bins,
         mode='cross', verbose=True, num_threads=4)
 
-Now, we're ready to calculate correlation functions for a specific model. Just like for galaxy clustering, we can even decompose the total signal into contributions from centrals and satellites. However, since this is a cross-correlation function, we only have pure central and satellite components, no central-satellite term.
+Now, we're ready to calculate lensing for a specific model. Just like for galaxy clustering, we can even decompose the total signal into contributions from centrals and satellites. However, since this is a cross-correlation function, we only have pure central and satellite components, no central-satellite terms.
 
 .. code-block:: python
 
