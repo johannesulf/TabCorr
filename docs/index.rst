@@ -10,13 +10,17 @@ This Python module provides extremely efficient and precise calculations of gala
 .. toctree::
     :maxdepth: 1
     :caption: User Guide
+    :glob:
 
-    guides/database
+    guides/*
 
 
 .. toctree::
     :maxdepth: 1
     :caption: Examples
+    :glob:
+
+    examples/*
 
 .. toctree::
     :maxdepth: 1
