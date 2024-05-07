@@ -1,9 +1,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from halotools.sim_manager import CachedHaloCatalog
+from halotools.empirical_models import PrebuiltHodModelFactory
 from halotools.mock_observables import mean_delta_sigma
 from halotools.mock_observables import return_xyz_formatted_array
-from halotools.empirical_models import PrebuiltHodModelFactory
+from halotools.sim_manager import CachedHaloCatalog
 from tabcorr import TabCorr
 
 # First, we tabulate the correlation functions in the halo catalog.
@@ -37,8 +37,9 @@ for key in ds.keys():
     plt.plot(rp_ave, rp_ave * ds[key] / 1e12, label=key, ls='--')
 
 plt.xscale('log')
-plt.xlabel(r'$r_p \ [h^{-1} \ \mathrm{Mpc}]$')
-plt.ylabel(r'$r_p \times \Delta\Sigma \ [10^6 \, M_\odot / \mathrm{pc}]$')
+plt.xlabel(r'$r_{\rm p} \ [h^{-1} \ \mathrm{Mpc}]$')
+plt.ylabel(
+    r'$r_{\rm p} \times \Delta\Sigma \ [10^6 \, M_\odot / \mathrm{pc}]$')
 plt.legend(loc='best', frameon=False)
 plt.tight_layout(pad=0.3)
 plt.savefig('ds_decomposition.png', dpi=300)
