@@ -36,9 +36,8 @@ class TabCorr:
 
         Parameters
         ----------
-        halocat : halotools.sim_manager.CachedHaloCatalog or
-                  halotools.sim_manager.UserSuppliedHaloCatalog
-            Halo catalog used to tabubulate correlation functions.
+        halocat : halotools.sim_manager.CachedHaloCatalog or halotools.sim_manager.UserSuppliedHaloCatalog
+            Halo catalog used to tabulate correlation functions.
         tpcf : function
             The halotools correlation function for which values are tabulated.
             Can also be a custom function as long as it follows the halotools

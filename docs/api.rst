@@ -8,7 +8,7 @@ Top-Level Interface
     :members: tabulate, predict, read, write
 
 .. autoclass:: tabcorr.Interpolator
-    :members: tabulate, predict, read, write
+    :members: predict, read, write
 
 tabcorr.database
 ================
