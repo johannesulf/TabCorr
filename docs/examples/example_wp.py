@@ -1,10 +1,9 @@
 import numpy as np
-from matplotlib import cm
-from matplotlib import colors
 import matplotlib.pyplot as plt
-from halotools.sim_manager import CachedHaloCatalog
-from halotools.mock_observables import wp
+import matplotlib as mpl
 from halotools.empirical_models import PrebuiltHodModelFactory
+from halotools.mock_observables import wp
+from halotools.sim_manager import CachedHaloCatalog
 from tabcorr import TabCorr
 
 # First, we tabulate the correlation functions in the halo catalog. Note that
@@ -37,8 +36,8 @@ for key in wp.keys():
 
 plt.xscale('log')
 plt.yscale('log')
-plt.xlabel(r'$r_p \ [h^{-1} \ \mathrm{Mpc}]$')
-plt.ylabel(r'$w_p \ [h^{-1} \ \mathrm{Mpc}]$')
+plt.xlabel(r'$r_{\rm p} \ [h^{-1} \ \mathrm{Mpc}]$')
+plt.ylabel(r'$w_{\rm p} \ [h^{-1} \ \mathrm{Mpc}]$')
 plt.legend(loc='lower left', frameon=False)
 plt.tight_layout(pad=0.3)
 plt.savefig('wp_decomposition.png', dpi=300)
@@ -46,22 +45,20 @@ plt.close()
 
 # Studying how the clustering predictions change as a function of galaxy-halo
 # parameters is straightforward.
-
-norm = colors.Normalize(vmin=12.0, vmax=12.8)
-sm = cm.ScalarMappable(cmap=cm.viridis, norm=norm)
-sm.set_array([])
+sm = mpl.cm.ScalarMappable(
+    cmap=mpl.cm.viridis, norm=mpl.colors.Normalize(vmin=12.0, vmax=12.8))
 
 for logm1 in np.linspace(12.0, 12.8, 1000):
     model.param_dict['logM1'] = logm1
     ngal, wp = halotab.predict(model)
     plt.plot(rp_ave, wp, color=sm.to_rgba(logm1), lw=0.1)
 
-cb = plt.colorbar(sm)
+cb = plt.colorbar(sm, ax=plt.gca())
 cb.set_label(r'$\log M_1$')
 plt.xscale('log')
 plt.yscale('log')
-plt.xlabel(r'$r_p \ [h^{-1} \ \mathrm{Mpc}]$')
-plt.ylabel(r'$w_p \ [h^{-1} \ \mathrm{Mpc}]$')
+plt.xlabel(r'$r_{\rm p} \ [h^{-1} \ \mathrm{Mpc}]$')
+plt.ylabel(r'$w_{\rm p} \ [h^{-1} \ \mathrm{Mpc}]$')
 plt.tight_layout(pad=0.3)
 plt.savefig('wp_vs_logm1.png', dpi=300)
 plt.close()
