@@ -9,7 +9,7 @@ readme = "README.md"
 license = {file = "LICENSE"}
 classifiers = ["License :: OSI Approved :: MIT License"]
 dynamic = ["version", "description"]
-dependencies = ["numpy", "scipy", "astropy", "h5py", "tqdm"]
+dependencies = ["numpy", "scipy", "astropy", "h5py", "tqdm", "halotools"]
 
 [project.urls]
 Home = "https://tabcorr.readthedocs.io"
