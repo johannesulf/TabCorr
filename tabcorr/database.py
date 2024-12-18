@@ -104,7 +104,7 @@ def cosmology(suite, i_cosmo=0):
         n_eff = cosmo_dict['N_ur'] + cosmo_dict['N_ncdm']
         m_nu = [float(omega) * 93.04 * u.eV for omega in
                 cosmo_dict['omega_ncdm'].split(',')]
-        assert len(m_nu) == cosmo_dict['N_ncdm']
+        assert len(m_nu) == max(cosmo_dict['N_ncdm'], 1)
         while len(m_nu) < n_eff - 1:
             m_nu.append(0 * u.eV)
         return Flatw0waCDM(
