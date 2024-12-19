@@ -84,7 +84,8 @@ def cosmology(suite, i_cosmo=0):
     Returns
     -------
     cosmo : astropy.cosmology.Cosmology
-        The TabCorr database directory.
+        The cosmology associated with the simulation. This is a regular
+        astropy cosmology object with `sigma8` added as an extra attribute.
 
     Raises
     ------
@@ -107,10 +108,12 @@ def cosmology(suite, i_cosmo=0):
         assert len(m_nu) == max(cosmo_dict['N_ncdm'], 1)
         while len(m_nu) < n_eff - 1:
             m_nu.append(0 * u.eV)
-        return Flatw0waCDM(
+        cosmo = Flatw0waCDM(
             H0=h * 100, Om0=omega_m / h**2, Ob0=cosmo_dict['omega_b'] / h**2,
             w0=cosmo_dict['w0_fld'], wa=cosmo_dict['wa_fld'], Neff=n_eff,
             m_nu=m_nu, Tcmb0=2.7255 * u.K)
+        cosmo.sigma8 = cosmo_dict['sigma8_m']
+        return cosmo
 
     elif suite == 'AemulusAlpha':
         path = Path(__file__).absolute().parent
@@ -126,10 +129,11 @@ def cosmology(suite, i_cosmo=0):
         cosmo_dict['Ob0'] = cosmo_dict['ombh2'] / (cosmo_dict['H0'] / 100)**2
         cosmo_dict['Oc0'] = cosmo_dict['omch2'] / (cosmo_dict['H0'] / 100)**2
         cosmo_dict['Om0'] = cosmo_dict['Ob0'] + cosmo_dict['Oc0']
-        return FlatwCDM(H0=cosmo_dict['H0'], Om0=cosmo_dict['Om0'],
-                        w0=cosmo_dict['w0'], Neff=cosmo_dict['Neff'],
-                        Ob0=cosmo_dict['Ob0'], Tcmb0=2.7255 * u.K)
-
+        cosmo = FlatwCDM(H0=cosmo_dict['H0'], Om0=cosmo_dict['Om0'],
+                         w0=cosmo_dict['w0'], Neff=cosmo_dict['Neff'],
+                         Ob0=cosmo_dict['Ob0'], Tcmb0=2.7255 * u.K)
+        cosmo.sigma8 = cosmo_dict['sigma8']
+        return cosmo
     else:
         raise ValueError('Unkown simulation suite {}.'.format(suite))
 
