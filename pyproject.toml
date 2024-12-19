@@ -15,4 +15,4 @@ dependencies = ["numpy", "scipy", "astropy", "h5py", "tqdm", "halotools"]
 Home = "https://tabcorr.readthedocs.io"
 
 [tool.flit.sdist]
-exclude = ["docs", "scripts", ".gitignore"]
+exclude = ["docs", "scripts", ".gitignore", "AbacusSummit", "AemulusAlpha"]
