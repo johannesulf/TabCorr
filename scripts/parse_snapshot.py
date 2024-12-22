@@ -8,11 +8,8 @@ import struct
 
 from abacusnbody.data.read_abacus import read_asdf
 from abacusnbody.data.compaso_halo_catalog import CompaSOHaloCatalog
-from astropy import units as u
-from astropy.cosmology import w0waCDM
 from astropy.table import Table, vstack
 from collections import namedtuple
-from halotools.empirical_models import delta_vir
 from pathlib import Path
 from tabcorr import database
 from tqdm import tqdm
@@ -224,17 +221,18 @@ def download_aemulus_alpha_particles(simulation, redshift):
 
 def read_abacus_summit_halos(simulation, redshift):
 
-    fields = ['x_L2com', 'v_L2com', 'N', 'rvcirc_max_com']
+    fields = ['x_L2com', 'v_L2com', 'N', 'rvcirc_max_L2com', 'r100_L2com']
     halocat = CompaSOHaloCatalog(
         ABACUS_SUMMIT_PATH_BASE / 'AbacusSummit_{}'.format(simulation) /
-        'halos' / 'z{:.3f}'.format(redshift), fields=fields)
-    halocat.halos = halocat.halos[halocat.halos['N'] >= 300]
+        'halos' / 'z{:.3f}'.format(redshift), fields=fields,
+        filter_func=(lambda h: h['N'] >= 300))
     halos = halocat.halos
 
     mdef = '{:.0f}m'.format(halocat.header['SODensityL1'])
     halos['halo_m{}'.format(mdef)] = (
         halos['N'] * halocat.header['ParticleMassHMsun'])
     halos.remove_column('N')
+    halos.rename_column('r100_L2com', 'halo_r{}'.format(mdef))
 
     halos['x_L2com'] += halocat.header['BoxSize'] / 2.0
     halos['halo_x'] = halos['x_L2com'][:, 0]
@@ -247,18 +245,8 @@ def read_abacus_summit_halos(simulation, redshift):
     halos['halo_vz'] = halos['v_L2com'][:, 2]
     halos.remove_column('v_L2com')
 
-    cosmology = w0waCDM(H0=halocat.header['H0'], Om0=halocat.header['Omega_M'],
-                        Ode0=halocat.header['Omega_DE'],
-                        w0=halocat.header['w0'], wa=halocat.header['wa'])
-    dvir = delta_vir(cosmology, redshift) * 200 / (18 * np.pi**2)
-    rho_crit = (cosmology.critical_density(redshift) /
-                (cosmology.H(0).value / 100)**2 / (1 + redshift)**3)
-    halocat.halos['halo_r{}'.format(mdef)] = ((
-        halocat.halos['halo_m{}'.format(mdef)] * u.M_sun / (
-            4.0 / 3.0 * np.pi * rho_crit * dvir))**(1.0 / 3.0)).to(u.Mpc).value
-
-    halos['rvcirc_max_com'] /= 2.16258
-    halos.rename_column('rvcirc_max_com', 'halo_rs')
+    halos['rvcirc_max_L2com'] /= 2.16258
+    halos.rename_column('rvcirc_max_L2com', 'halo_rs')
 
     return halos
 
@@ -319,7 +307,7 @@ def main():
 
     print('Parsing data for {} at z={:.2f}...'.format(name, args.redshift))
 
-    path = database.simulation_snapshot_directory(
+    path = database.directory(
         args.suite, args.redshift, i_cosmo=args.cosmo, i_phase=args.phase,
         config=args.config)
     path.mkdir(parents=True, exist_ok=True)

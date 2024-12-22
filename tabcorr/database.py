@@ -157,7 +157,7 @@ def simulation_name(suite, i_cosmo=0, i_phase=0, config=None):
     Returns
     -------
     name : str
-        The TabCorr database directory.
+        The name of the simulation.
 
     Raises
     ------
