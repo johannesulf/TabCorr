@@ -149,7 +149,8 @@ class Interpolator:
                     fstream.create_group('tabcorr_{}'.format(i)))
             fstream.attrs['spline'] = self.spline
 
-    def predict(self, model, n_gauss_prim=10, extrapolate=False, **occ_kwargs):
+    def predict(self, model, n_gauss_prim=10, extrapolate=False,
+                check_consistency=True, **occ_kwargs):
         """Interpolate the predictions from multiple TabCorr instances.
 
         The values of parameters to interpolate should be in the parameter
@@ -167,6 +168,10 @@ class Interpolator:
         extrapolate : bool, optional
             Whether to allow extrapolation beyond points sampled by the input
             TabCorr instances. Default is False.
+        check_consistency : bool, optional
+            Whether to enforce consistency in the redshift, primary halo
+            property and secondary halo property between the model and the
+            TabCorr instance. Default is True.
         **occ_kwargs : dict, optional
             Keyword arguments passed to the ``mean_occupation`` functions of
             the model.
@@ -201,7 +206,8 @@ class Interpolator:
             # Calculate the mean occupation numbers, avoiding to calculate
             # those repeatedly for identical halo tables.
             mean_occupation = [self.tabcorr_list[i].mean_occupation(
-                model, n_gauss_prim=n_gauss_prim, **occ_kwargs) for i in
+                model, n_gauss_prim=n_gauss_prim,
+                check_consistency=check_consistency, **occ_kwargs) for i in
                 self.unique_gal_type_index]
 
             for i in range(len(self.param_dict_table)):

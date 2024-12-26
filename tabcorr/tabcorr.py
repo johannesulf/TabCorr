@@ -462,7 +462,8 @@ class TabCorr:
 
         self.gal_type.write(fname, path='gal_type', append=True)
 
-    def mean_occupation(self, model, n_gauss_prim=10, **occ_kwargs):
+    def mean_occupation(self, model, n_gauss_prim=10, check_consistency=True,
+                        **occ_kwargs):
         """Calculate the mean occupation for each halo/galaxy bin.
 
         Parameters
@@ -474,6 +475,9 @@ class TabCorr:
             The number of points used in the Gaussian quadrature to calculate
             the mean occupation averaged over the primary halo property in each
             halo bin. Default is 10.
+            Whether to enforce consistency in the redshift, primary halo
+            property and secondary halo property between the model and the
+            TabCorr instance. Default is True.
         **occ_kwargs : dict, optional
             Keyword arguments passed to the ``mean_occupation`` functions of
             the model.
@@ -489,41 +493,46 @@ class TabCorr:
         ValueError
             If there is a mis-match between the model and the TabCorr instance.
         """
-        try:
-            assert (sorted(model.gal_types) == sorted(
-                ['centrals', 'satellites']))
-        except AssertionError:
-            raise ValueError('The model instance must only have centrals and' +
-                             ' satellites as galaxy types. Check the ' +
-                             '`gal_types` attribute of the model instance.')
-
-        try:
-            assert (model._input_model_dictionary['centrals_occupation']
-                    .prim_haloprop_key == self.attrs['prim_haloprop_key'])
-            assert (model._input_model_dictionary['satellites_occupation']
-                    .prim_haloprop_key == self.attrs['prim_haloprop_key'])
-        except AssertionError:
-            raise ValueError('Mismatch in the primary halo properties of the' +
-                             ' model and the TabCorr instance.')
-
-        try:
-            if hasattr(model._input_model_dictionary['centrals_occupation'],
-                       'sec_haloprop_key'):
+        if check_consistency:
+            try:
+                assert (sorted(model.gal_types) == sorted(
+                    ['centrals', 'satellites']))
+            except AssertionError:
+                raise ValueError(
+                    'The model instance must only have centrals and ' +
+                    'satellites as galaxy types. Check the `gal_types` ' +
+                    'attribute of the model instance.')
+            try:
                 assert (model._input_model_dictionary['centrals_occupation']
-                        .sec_haloprop_key == self.attrs['sec_haloprop_key'])
-            if hasattr(model._input_model_dictionary['satellites_occupation'],
-                       'sec_haloprop_key'):
+                        .prim_haloprop_key == self.attrs['prim_haloprop_key'])
                 assert (model._input_model_dictionary['satellites_occupation']
-                        .sec_haloprop_key == self.attrs['sec_haloprop_key'])
-        except AssertionError:
-            raise ValueError('Mismatch in the secondary halo properties of ' +
-                             'the model and the TabCorr instance.')
+                        .prim_haloprop_key == self.attrs['prim_haloprop_key'])
+            except AssertionError:
+                raise ValueError('Mismatch in the primary halo properties ' +
+                                 'of the model and the TabCorr instance.')
 
-        try:
-            assert np.abs(model.redshift - self.attrs['redshift']) < 0.05
-        except AssertionError:
-            raise ValueError('Mismatch in the redshift of the model and the ' +
-                             'TabCorr instance.')
+            try:
+                if hasattr(
+                        model._input_model_dictionary['centrals_occupation'],
+                        'sec_haloprop_key'):
+                    assert (
+                        model._input_model_dictionary['centrals_occupation']
+                        .sec_haloprop_key == self.attrs['sec_haloprop_key'])
+                if hasattr(
+                        model._input_model_dictionary['satellites_occupation'],
+                        'sec_haloprop_key'):
+                    assert (
+                        model._input_model_dictionary['satellites_occupation']
+                        .sec_haloprop_key == self.attrs['sec_haloprop_key'])
+            except AssertionError:
+                raise ValueError('Mismatch in the secondary halo properties ' +
+                                 'of the model and the TabCorr instance.')
+
+            try:
+                assert np.abs(model.redshift - self.attrs['redshift']) < 0.05
+            except AssertionError:
+                raise ValueError('Mismatch in the redshift of the model and ' +
+                                 'the TabCorr instance.')
 
         log_prim_haloprop_min = self.gal_type['log_prim_haloprop_min'].data
         log_prim_haloprop_max = self.gal_type['log_prim_haloprop_max'].data
@@ -569,7 +578,7 @@ class TabCorr:
             np.sum(self.w_gauss * prim_haloprop**n, axis=-1))
 
     def predict(self, model, separate_gal_type=False, n_gauss_prim=10,
-                **occ_kwargs):
+                check_consistency=True, **occ_kwargs):
         """Predict the number density and correlation function for a model.
 
         Parameters
@@ -586,6 +595,10 @@ class TabCorr:
             The number of points used in the Gaussian quadrature to calculate
             the mean occupation averaged over the primary halo property in each
             halo bin. Default is 10.
+        check_consistency: bool, optional
+            Whether to enforce consistency in the redshift, primary halo
+            property and secondary halo property between the model and the
+            TabCorr instance. Default is True.
         **occ_kwargs : dict, optional
             Keyword arguments passed to the ``mean_occupation`` functions of
             the model.
@@ -602,7 +615,8 @@ class TabCorr:
         """
         if not isinstance(model, np.ndarray):
             mean_occupation = self.mean_occupation(
-                model, n_gauss_prim=n_gauss_prim, **occ_kwargs)
+                model, n_gauss_prim=n_gauss_prim,
+                check_consistency=check_consistency, **occ_kwargs)
         else:
             mean_occupation = model
 
