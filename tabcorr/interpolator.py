@@ -4,7 +4,6 @@ import h5py
 import numpy as np
 
 from astropy.table import Table
-from scipy.spatial import Delaunay
 
 from . import TabCorr
 
@@ -12,7 +11,7 @@ from . import TabCorr
 class Interpolator:
     """Class for interpolation of multiple TabCorr instances."""
 
-    def __init__(self, tabcorr_list, param_dict_table, spline=True):
+    def __init__(self, tabcorr_list, param_dict_table):
         """Initialize an interpolation of multiple TabCorr instances.
 
         Parameters
@@ -23,20 +22,11 @@ class Interpolator:
             Table containing the keywords and values corresponding to each
             instance in the TabCorr list. Must have the same length and
             ordering as `tabcorr_list`.
-        spline : bool, optional
-            For multi-dimensional interpolation, whether the interpolation
-            is performed over a regular grid using spline interpolation or
-            over an irregular grid using linear barycentric interpolation.
-            Spline interpolation is more accurate but slower and the TabCorr
-            instances need to be arranged on a grid. For one-dimensional
-            interpolation, spline interpolation will always be used. Default is
-            True.
 
         Raises
         ------
         ValueError
-            If `spline` is True and `param_dict_table` does not describe a
-            grid.
+            If `param_dict_table` does not describe a grid.
 
         """
         if len(tabcorr_list) != len(param_dict_table):
@@ -45,46 +35,30 @@ class Interpolator:
 
         self.tabcorr_list = tabcorr_list
         self.param_dict_table = param_dict_table.copy()
-        self.spline = spline or len(self.param_dict_table.colnames) == 1
 
-        if self.spline:
-            self.xp = []
-            self.a = []
-            for key in self.param_dict_table.colnames:
-                self.xp.append(np.sort(np.unique(param_dict_table[key])))
-                self.a.append(spline_interpolation_matrix(self.xp[-1]))
+        self.xp = []
+        self.a = []
+        for key in self.param_dict_table.colnames:
+            self.xp.append(np.sort(np.unique(param_dict_table[key])))
+            self.a.append(spline_interpolation_matrix(self.xp[-1]))
 
-            try:
-                # Check that the table has the right length to describe the
-                # grid.
-                assert (np.prod([len(xp) for xp in self.xp]) ==
-                        len(self.param_dict_table))
-                # Check that no combination of values in the table appears
-                # twice.
-                assert np.all(
-                    np.unique(np.stack(self.param_dict_table),
-                              return_counts=True)[1] == 1)
-            except AssertionError:
-                raise ValueError(
-                    "The 'param_dict_table' does not describe a grid.")
+        try:
+            # Check that the table has the right length to describe the
+            # grid.
+            assert (np.prod([len(xp) for xp in self.xp]) ==
+                    len(self.param_dict_table))
+            # Check that no combination of values in the table appears
+            # twice.
+            assert np.all(
+                np.unique(np.stack(self.param_dict_table),
+                          return_counts=True)[1] == 1)
+        except AssertionError:
+            raise ValueError(
+                "The 'param_dict_table' does not describe a grid.")
 
-            self.param_dict_table['tabcorr_index'] = np.arange(len(
-                self.param_dict_table))
-            self.param_dict_table.sort(self.param_dict_table.colnames)
-
-        else:
-
-            if len(self.param_dict_table) <= len(
-                    self.param_dict_table.colnames):
-                raise ValueError(
-                    'The number of TabCorr instances provided must be ' +
-                    'larger than the number of dimensions.')
-
-            self.xp = np.zeros((len(self.param_dict_table),
-                               len(self.param_dict_table.colnames)))
-            for i, key in enumerate(self.param_dict_table.colnames):
-                self.xp[:, i] = self.param_dict_table[key].data
-            self.delaunay = Delaunay(self.xp)
+        self.param_dict_table['tabcorr_index'] = np.arange(len(
+            self.param_dict_table))
+        self.param_dict_table.sort(self.param_dict_table.colnames)
 
         # Determine unique halo tables such that we can save computation time
         # if halo tables are repeated.
@@ -118,9 +92,8 @@ class Interpolator:
             for i in range(len(param_dict_table)):
                 tabcorr_list.append(
                     TabCorr.read(fstream['tabcorr_{}'.format(i)]))
-            spline = fstream.attrs['spline']
 
-        return Interpolator(tabcorr_list, param_dict_table, spline=spline)
+        return Interpolator(tabcorr_list, param_dict_table)
 
     def write(self, fname, overwrite=False, max_args_size=1000000,
               matrix_dtype=np.float32):
@@ -147,7 +120,6 @@ class Interpolator:
             for i in range(len(self.param_dict_table)):
                 self.tabcorr_list[i].write(
                     fstream.create_group('tabcorr_{}'.format(i)))
-            fstream.attrs['spline'] = self.spline
 
     def predict(self, model, n_gauss_prim=10, extrapolate=False,
                 check_consistency=True, **occ_kwargs):
@@ -201,60 +173,31 @@ class Interpolator:
                     'The key {} is not present in the parameter '.format(key) +
                     'dictionary of the model.')
 
-        if self.spline:
+        # Calculate the mean occupation numbers, avoiding to calculate
+        # those repeatedly for identical halo tables.
+        mean_occupation = [self.tabcorr_list[i].mean_occupation(
+            model, n_gauss_prim=n_gauss_prim,
+            check_consistency=check_consistency, **occ_kwargs) for i in
+            self.unique_gal_type_index]
 
-            # Calculate the mean occupation numbers, avoiding to calculate
-            # those repeatedly for identical halo tables.
-            mean_occupation = [self.tabcorr_list[i].mean_occupation(
-                model, n_gauss_prim=n_gauss_prim,
-                check_consistency=check_consistency, **occ_kwargs) for i in
-                self.unique_gal_type_index]
-
-            for i in range(len(self.param_dict_table)):
-                k = self.param_dict_table['tabcorr_index'][i]
-                tabcorr = self.tabcorr_list[k]
-                ngal_i, xi_i = tabcorr.predict(
-                    mean_occupation[self.unique_gal_type_inverse[k]],
-                    n_gauss_prim=n_gauss_prim, **occ_kwargs)
-                if i == 0:
-                    ngal = np.zeros(np.prod([len(xp) for xp in self.xp]))
-                    xi = np.zeros([np.prod([len(xp) for xp in self.xp])] +
-                                  list(xi_i.shape))
-                ngal[i] = ngal_i
-                xi[i] = xi_i
-            ngal = ngal.reshape([len(xp) for xp in self.xp])
-            xi = xi.reshape([len(xp) for xp in self.xp] + list(xi_i.shape))
-            return (spline_interpolate(x_model, self.xp, self.a, ngal,
-                                       extrapolate=extrapolate),
-                    spline_interpolate(x_model, self.xp, self.a, xi,
-                                       extrapolate=extrapolate))
-
-        i_simplex = self.delaunay.find_simplex(x_model)
-
-        if i_simplex == -1:
-            if not extrapolate:
-                raise ValueError(
-                    'The x-coordinates are outside of the interpolation ' +
-                    'range and extrapolation is turned off.')
-            x_cm = np.mean(self.xp[self.delaunay.simplices], axis=1)
-            i_simplex = np.argmin(np.sum((x_model - x_cm)**2, axis=1))
-
-        simplex = self.delaunay.simplices[i_simplex]
-        b = self.delaunay.transform[i_simplex, :-1].dot(
-            x_model - self.delaunay.transform[i_simplex, -1])
-        w = np.append(b, 1 - np.sum(b))
-
-        for i, k in enumerate(simplex):
-            ngal_i, xi_i = self.tabcorr_list[k].predict(
-                model, **occ_kwargs)
+        for i in range(len(self.param_dict_table)):
+            k = self.param_dict_table['tabcorr_index'][i]
+            tabcorr = self.tabcorr_list[k]
+            ngal_i, xi_i = tabcorr.predict(
+                mean_occupation[self.unique_gal_type_inverse[k]],
+                n_gauss_prim=n_gauss_prim, **occ_kwargs)
             if i == 0:
-                ngal = ngal_i * w[i]
-                xi = xi_i * w[i]
-            else:
-                ngal += ngal_i * w[i]
-                xi += xi_i * w[i]
-
-        return ngal, xi
+                ngal = np.zeros(np.prod([len(xp) for xp in self.xp]))
+                xi = np.zeros([np.prod([len(xp) for xp in self.xp])] +
+                              list(xi_i.shape))
+            ngal[i] = ngal_i
+            xi[i] = xi_i
+        ngal = ngal.reshape([len(xp) for xp in self.xp])
+        xi = xi.reshape([len(xp) for xp in self.xp] + list(xi_i.shape))
+        return (spline_interpolate(x_model, self.xp, self.a, ngal,
+                                   extrapolate=extrapolate),
+                spline_interpolate(x_model, self.xp, self.a, xi,
+                                   extrapolate=extrapolate))
 
 
 def spline_interpolation_matrix(xp):
