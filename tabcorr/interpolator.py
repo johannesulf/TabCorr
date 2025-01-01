@@ -39,7 +39,7 @@ class Interpolator:
         self.xp = []
         self.a = []
         for key in self.param_dict_table.colnames:
-            self.xp.append(np.sort(np.unique(param_dict_table[key])))
+            self.xp.append(np.sort(np.unique(param_dict_table[key].data)))
             self.a.append(spline_interpolation_matrix(self.xp[-1]))
 
         try:
@@ -121,8 +121,8 @@ class Interpolator:
                 self.tabcorr_list[i].write(
                     fstream.create_group('tabcorr_{}'.format(i)))
 
-    def predict(self, model, n_gauss_prim=10, extrapolate=False,
-                check_consistency=True, **occ_kwargs):
+    def predict(self, model, separate_gal_type=False, n_gauss_prim=10,
+                extrapolate=False, check_consistency=True, **occ_kwargs):
         """Interpolate the predictions from multiple TabCorr instances.
 
         The values of parameters to interpolate should be in the parameter
@@ -133,6 +133,9 @@ class Interpolator:
         model : HodModelFactory
             Instance of ``halotools.empirical_models.HodModelFactory``
             describing the model for which predictions are made.
+        separate_gal_type : bool, optional
+            If True, the return values are dictionaries divided by each galaxy
+            types contribution to the output result. Default is False.
         n_gauss_prim : int, optional
             The number of points used in the Gaussian quadrature to calculate
             the mean occupation averaged over the primary halo property in each
@@ -180,24 +183,37 @@ class Interpolator:
             check_consistency=check_consistency, **occ_kwargs) for i in
             self.unique_gal_type_index]
 
+        results = []
+
         for i in range(len(self.param_dict_table)):
             k = self.param_dict_table['tabcorr_index'][i]
             tabcorr = self.tabcorr_list[k]
-            ngal_i, xi_i = tabcorr.predict(
+            results.append(tabcorr.predict(
                 mean_occupation[self.unique_gal_type_inverse[k]],
-                n_gauss_prim=n_gauss_prim, **occ_kwargs)
-            if i == 0:
-                ngal = np.zeros(np.prod([len(xp) for xp in self.xp]))
-                xi = np.zeros([np.prod([len(xp) for xp in self.xp])] +
-                              list(xi_i.shape))
-            ngal[i] = ngal_i
-            xi[i] = xi_i
-        ngal = ngal.reshape([len(xp) for xp in self.xp])
-        xi = xi.reshape([len(xp) for xp in self.xp] + list(xi_i.shape))
-        return (spline_interpolate(x_model, self.xp, self.a, ngal,
-                                   extrapolate=extrapolate),
-                spline_interpolate(x_model, self.xp, self.a, xi,
-                                   extrapolate=extrapolate))
+                separate_gal_type=separate_gal_type,
+                n_gauss_prim=n_gauss_prim, **occ_kwargs))
+
+        output = []
+
+        for i in range(2):
+            if separate_gal_type:
+                output.append(dict())
+                for key in results[0][i].keys():
+                    data = np.array([r[i][key] for r in results])
+                    data = data.reshape([len(xp) for xp in self.xp] +
+                                        list(data.shape[1:]))
+                    output[-1][key] = spline_interpolate(
+                        x_model, self.xp, self.a, data,
+                        extrapolate=extrapolate)
+            else:
+                data = np.array([r[i] for r in results])
+                data = data.reshape([len(xp) for xp in self.xp] +
+                                    list(data.shape[1:]))
+                output.append(spline_interpolate(
+                    x_model, self.xp, self.a, data,
+                    extrapolate=extrapolate))
+
+        return tuple(output)
 
 
 def spline_interpolation_matrix(xp):
