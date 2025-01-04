@@ -1,5 +1,8 @@
 import numpy as np
 import pytest
+import tabcorr
+
+from scipy.interpolate import interp1d
 
 
 @pytest.mark.parametrize("tpcf", ["wp", "ds"])
@@ -38,3 +41,29 @@ def test_n_gauss_prim(halotab, model):
     assert not np.allclose(xi_1, xi_2, atol=0, rtol=1e-6)
     assert np.isclose(ngal_2, ngal_3, atol=0, rtol=1e-6)
     assert np.allclose(xi_2, xi_3, atol=0, rtol=1e-6)
+
+
+@pytest.mark.parametrize("tpcf", ["wp", "ds", "xi0", "xi2", "xi4"])
+def test_interpolator(halotab, model, tpcf):
+    # Check that TabCorr's multi-dimensional spline interpolation agrees
+    # with the one-dimensional spline interpolation of scipy.
+
+    config = tabcorr.database.configuration('efficient')
+    config['log_eta_bins'] = np.log10(config['conc_gal_bias_bins'])
+
+    for key in ['log_eta', 'alpha_s', 'alpha_c']:
+        model.param_dict['log_eta'] = 0.1
+        model.param_dict['alpha_s'] = 1.1
+        model.param_dict['alpha_c'] = 0.1
+        bins = config[f'{key}_bins']
+        xi_bins = []
+        for x in bins:
+            model.param_dict[key] = x
+            xi_bins.append(halotab[tpcf].predict(model)[1])
+        xi_bins = np.array(xi_bins)
+        for x in np.linspace(np.amin(bins), np.amax(bins), 10):
+            model.param_dict[key] = x
+            xi_tabcorr = halotab[tpcf].predict(model)[1]
+            xi_scipy = [interp1d(bins, xi_bins[:, i], kind='cubic')(x) for i in
+                        range(len(xi_tabcorr))]
+            assert np.allclose(xi_tabcorr, xi_scipy)
