@@ -71,6 +71,24 @@ def configuration(config_str):
     return config_dict
 
 
+class TabCorrCosmology:
+    def __init__(self, cosmology, sigma_8, n_s, alpha_s=0):
+        self.cosmology = cosmology
+        self.sigma_8 = sigma_8
+        self.n_s = n_s
+        self.alpha_s = alpha_s
+
+    def __getattr__(self, name):
+        if name == 'sigma_8':
+            return self.sigma_8
+        elif name == 'n_s':
+            return self.n_s
+        elif name == 'alpha_s':
+            return self.alpha_s
+        else:
+            return getattr(self.cosmology, name)
+
+
 def cosmology(suite, i_cosmo=0):
     """Return the cosmology of a given simulation.
 
@@ -112,7 +130,9 @@ def cosmology(suite, i_cosmo=0):
             H0=h * 100, Om0=omega_m / h**2, Ob0=cosmo_dict['omega_b'] / h**2,
             w0=cosmo_dict['w0_fld'], wa=cosmo_dict['wa_fld'], Neff=n_eff,
             m_nu=m_nu, Tcmb0=2.7255 * u.K)
-        cosmo.sigma8 = cosmo_dict['sigma8_m']
+        cosmo = TabCorrCosmology(
+            cosmo, cosmo_dict['sigma8_cb'], cosmo_dict['n_s'],
+            cosmo_dict['alpha_s'])
         return cosmo
 
     elif suite == 'AemulusAlpha':
@@ -132,7 +152,7 @@ def cosmology(suite, i_cosmo=0):
         cosmo = FlatwCDM(H0=cosmo_dict['H0'], Om0=cosmo_dict['Om0'],
                          w0=cosmo_dict['w0'], Neff=cosmo_dict['Neff'],
                          Ob0=cosmo_dict['Ob0'], Tcmb0=2.7255 * u.K)
-        cosmo.sigma8 = cosmo_dict['sigma8']
+        cosmo = TabCorrCosmology(cosmo, cosmo_dict['sigma8'], cosmo_dict['ns'])
         return cosmo
     else:
         raise ValueError('Unkown simulation suite {}.'.format(suite))
