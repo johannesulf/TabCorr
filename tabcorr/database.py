@@ -5,7 +5,7 @@ import os
 
 from astropy import units as u
 from astropy.table import Table
-from astropy.cosmology import Flatw0waCDM, FlatwCDM, Planck15
+from astropy.cosmology import Flatw0waCDM, FlatwCDM, Planck15, Parameter
 from pathlib import Path
 
 from . import Interpolator
@@ -71,22 +71,25 @@ def configuration(config_str):
     return config_dict
 
 
-class TabCorrCosmology:
-    def __init__(self, cosmology, sigma_8, n_s, alpha_s=0):
-        self.cosmology = cosmology
-        self.sigma_8 = sigma_8
-        self.n_s = n_s
-        self.alpha_s = alpha_s
+class TabCorrCosmology():
 
-    def __getattr__(self, name):
-        if name == 'sigma_8':
-            return self.sigma_8
-        elif name == 'n_s':
-            return self.n_s
-        elif name == 'alpha_s':
-            return self.alpha_s
-        else:
-            return getattr(self.cosmology, name)
+    sigma8 = Parameter(fvalidate='float')
+    ns = Parameter(fvalidate='float')
+    alphas = Parameter(fvalidate='float')
+
+    def __init__(self, *args, sigma8=0.8, ns=0.96, alphas=0, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.sigma8 = sigma8
+        self.ns = ns
+        self.alphas = alphas
+
+
+class TabCorrFlatwCDM(TabCorrCosmology, FlatwCDM):
+    pass
+
+
+class TabCorrFlatw0waCDM(TabCorrCosmology, Flatw0waCDM):
+    pass
 
 
 def cosmology(suite, i_cosmo=0):
@@ -126,14 +129,11 @@ def cosmology(suite, i_cosmo=0):
         assert len(m_nu) == max(cosmo_dict['N_ncdm'], 1)
         while len(m_nu) < n_eff - 1:
             m_nu.append(0 * u.eV)
-        cosmo = Flatw0waCDM(
+        return TabCorrFlatw0waCDM(
             H0=h * 100, Om0=omega_m / h**2, Ob0=cosmo_dict['omega_b'] / h**2,
             w0=cosmo_dict['w0_fld'], wa=cosmo_dict['wa_fld'], Neff=n_eff,
-            m_nu=m_nu, Tcmb0=2.7255 * u.K)
-        cosmo = TabCorrCosmology(
-            cosmo, cosmo_dict['sigma8_cb'], cosmo_dict['n_s'],
-            cosmo_dict['alpha_s'])
-        return cosmo
+            m_nu=m_nu, Tcmb0=2.7255 * u.K, sigma8=cosmo_dict['sigma8_cb'],
+            ns=cosmo_dict['n_s'], alphas=cosmo_dict['alpha_s'])
 
     elif suite == 'AemulusAlpha':
         path = Path(__file__).absolute().parent
@@ -149,11 +149,11 @@ def cosmology(suite, i_cosmo=0):
         cosmo_dict['Ob0'] = cosmo_dict['ombh2'] / (cosmo_dict['H0'] / 100)**2
         cosmo_dict['Oc0'] = cosmo_dict['omch2'] / (cosmo_dict['H0'] / 100)**2
         cosmo_dict['Om0'] = cosmo_dict['Ob0'] + cosmo_dict['Oc0']
-        cosmo = FlatwCDM(H0=cosmo_dict['H0'], Om0=cosmo_dict['Om0'],
-                         w0=cosmo_dict['w0'], Neff=cosmo_dict['Neff'],
-                         Ob0=cosmo_dict['Ob0'], Tcmb0=2.7255 * u.K)
-        cosmo = TabCorrCosmology(cosmo, cosmo_dict['sigma8'], cosmo_dict['ns'])
-        return cosmo
+        return TabCorrFlatwCDM(
+            H0=cosmo_dict['H0'], Om0=cosmo_dict['Om0'], w0=cosmo_dict['w0'],
+            Neff=cosmo_dict['Neff'], Ob0=cosmo_dict['Ob0'],
+            Tcmb0=2.7255 * u.K, sigma8=cosmo_dict['sigma8'],
+            ns=cosmo_dict['ns'])
     else:
         raise ValueError('Unkown simulation suite {}.'.format(suite))
 

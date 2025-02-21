@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 import tabcorr
 
 
@@ -23,3 +24,10 @@ def test_number_density(halotab, model):
     for gal_type in ['centrals', 'satellites']:
         assert np.isclose(ngal_wp[gal_type] * vol_stretch, ngal_ds[gal_type],
                           atol=0, rtol=1e-4)
+
+
+@pytest.mark.parametrize("suite", ["AemulusAlpha", "AbacusSummit"])
+def test_cosmology(suite):
+    # Check that that the cosmologie work as expected.
+
+    cosmo = tabcorr.database.cosmology(suite)
