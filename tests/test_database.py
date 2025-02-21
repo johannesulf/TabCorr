@@ -31,3 +31,6 @@ def test_cosmology(suite):
     # Check that that the cosmologie work as expected.
 
     cosmo = tabcorr.database.cosmology(suite)
+
+    for string in ['sigma8', 'ns', 'alphas']:
+        assert string in str(cosmo)
