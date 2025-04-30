@@ -4,7 +4,9 @@ import io
 import numpy as np
 import os
 import requests
+import shutil
 import struct
+import subprocess
 
 from abacusnbody.data.read_abacus import read_asdf
 from abacusnbody.data.compaso_halo_catalog import CompaSOHaloCatalog
@@ -15,7 +17,8 @@ from tabcorr import database
 from tqdm import tqdm
 
 
-ABACUS_SUMMIT_PATH_BASE = Path('/global/cfs/cdirs/desi/cosmosim/Abacus')
+ABACUS_SUMMIT_PATH_DISK = Path("/global/cfs/cdirs/desi/cosmosim/Abacus")
+ABACUS_SUMMIT_PATH_TAPE = Path("/nersc/projects/desi/cosmosim/Abacus")
 
 
 def read_gadget_snapshot(bstream, read_pos=False, read_vel=False,
@@ -56,12 +59,12 @@ def read_gadget_snapshot(bstream, read_pos=False, read_vel=False,
         The header is in the gadget_header namedtuple format.
 
     """
-    gadget_header_fmt = '6I6dddii6Iiiddddii6Ii'
+    gadget_header_fmt = "6I6dddii6Iiiddddii6Ii"
 
     gadget_header = namedtuple(
-        'gadget_header', 'npart mass time redshift flag_sfr flag_feedback ' +
-        'npartTotal flag_cooling num_files BoxSize Omega0 OmegaLambda ' +
-        'HubbleParam flag_age flag_metals NallHW flag_entr_ics')
+        "gadget_header", "npart mass time redshift flag_sfr flag_feedback " +
+        "npartTotal flag_cooling num_files BoxSize Omega0 OmegaLambda " +
+        "HubbleParam flag_age flag_metals NallHW flag_entr_ics")
 
     blocks_to_read = (read_pos, read_vel, read_id, read_mass)
     ret = []
@@ -107,13 +110,13 @@ def read_gadget_snapshot(bstream, read_pos=False, read_vel=False,
                 break
             npart = mass_npart
 
-        size_check = struct.unpack('I', bstream.read(4))[0]
+        size_check = struct.unpack("I", bstream.read(4))[0]
 
         block_item_size = item_per_part*sum(npart)
         if size_check != block_item_size*fmt.itemsize:
             fmt = fmt_64
         if size_check != block_item_size*fmt.itemsize:
-            raise ValueError('Invalid block size in file!')
+            raise ValueError("Invalid block size in file!")
         size_per_part = item_per_part*fmt.itemsize
         #
         if not b:
@@ -140,8 +143,8 @@ def read_gadget_snapshot(bstream, read_pos=False, read_vel=False,
 def download_aemulus_alpha_halos(simulation, redshift):
 
     try:
-        username = os.environ['AEMULUS_USERNAME']
-        password = os.environ['AEMULUS_PASSWORD']
+        username = os.environ["AEMULUS_USERNAME"]
+        password = os.environ["AEMULUS_PASSWORD"]
     except KeyError:
         raise RuntimeError("Set the AEMULUS_USERNAME and AEMULUS_PASSWORD " +
                            "environment variables.")
@@ -153,7 +156,7 @@ def download_aemulus_alpha_halos(simulation, redshift):
     try:
         assert np.amin(np.abs(redshift_snapshots - redshift)) < 0.005
     except AssertionError:
-        raise ValueError('No snapshot for redshift {:.2f}.'.format(redshift))
+        raise ValueError("No snapshot for redshift {:.2f}.".format(redshift))
 
     snapnum = np.argmin(np.abs(redshift_snapshots - redshift))
 
@@ -161,23 +164,23 @@ def download_aemulus_alpha_halos(simulation, redshift):
            "{}/halos/m200b/outbgc2_{}.list".format(simulation, snapnum))
 
     r = requests.get(url, auth=requests.auth.HTTPBasicAuth(username, password))
-    halos = Table.read(io.BytesIO(r.content), format='ascii', delimiter=' ')
+    halos = Table.read(io.BytesIO(r.content), format="ascii", delimiter=" ")
 
-    url = url.replace('outbgc2', 'out')
+    url = url.replace("outbgc2", "out")
     r = requests.get(url, auth=requests.auth.HTTPBasicAuth(username, password))
-    halos['halo_rs'] = Table.read(
-        io.BytesIO(r.content), format='ascii', delimiter=' ')['col7'] / 1e3
-    halos['R200b'] /= 1e3
+    halos["halo_rs"] = Table.read(
+        io.BytesIO(r.content), format="ascii", delimiter=" ")["col7"] / 1e3
+    halos["R200b"] /= 1e3
 
-    halos.rename_column('M200b', 'halo_m200m')
-    halos.rename_column('R200b', 'halo_r200m')
-    halos.rename_column('Vmax', 'halo_vmax')
-    for coordinate in ['x', 'y', 'z', 'vx', 'vy', 'vz']:
-        halos.rename_column(coordinate.upper(), 'halo_{}'.format(coordinate))
+    halos.rename_column("M200b", "halo_m200m")
+    halos.rename_column("R200b", "halo_r200m")
+    halos.rename_column("Vmax", "halo_vmax")
+    for coordinate in ["x", "y", "z", "vx", "vy", "vz"]:
+        halos.rename_column(coordinate.upper(), "halo_{}".format(coordinate))
 
-    halos = halos[halos['Parent_ID'] == -1]
+    halos = halos[halos["Parent_ID"] == -1]
 
-    halos.keep_columns([col for col in halos.colnames if col[:5] == 'halo_'])
+    halos.keep_columns([col for col in halos.colnames if col[:5] == "halo_"])
 
     return halos
 
@@ -185,8 +188,8 @@ def download_aemulus_alpha_halos(simulation, redshift):
 def download_aemulus_alpha_particles(simulation, redshift):
 
     try:
-        username = os.environ['AEMULUS_USERNAME']
-        password = os.environ['AEMULUS_PASSWORD']
+        username = os.environ["AEMULUS_USERNAME"]
+        password = os.environ["AEMULUS_PASSWORD"]
     except KeyError:
         raise RuntimeError("Set the AEMULUS_USERNAME and AEMULUS_PASSWORD " +
                            "environment variables.")
@@ -198,7 +201,7 @@ def download_aemulus_alpha_particles(simulation, redshift):
     try:
         assert np.amin(np.abs(redshift_snapshots - redshift)) < 0.005
     except AssertionError:
-        raise ValueError('No snapshot for redshift {:.2f}.'.format(redshift))
+        raise ValueError("No snapshot for redshift {:.2f}.".format(redshift))
 
     snapnum = np.argmin(np.abs(redshift_snapshots - redshift))
 
@@ -216,37 +219,36 @@ def download_aemulus_alpha_particles(simulation, redshift):
         ptcls = np.vstack([ptcls, ptcls_tmp])
 
     return Table([ptcls[:, 0], ptcls[:, 1], ptcls[:, 2]],
-                 names=('x', 'y', 'z'))
+                 names=("x", "y", "z"))
 
 
 def read_abacus_summit_halos(simulation, redshift):
 
-    fields = ['x_L2com', 'v_L2com', 'N', 'rvcirc_max_L2com', 'r100_L2com']
+    fields = ["x_L2com", "v_L2com", "N", "rvcirc_max_L2com", "r100_L2com"]
     halocat = CompaSOHaloCatalog(
-        ABACUS_SUMMIT_PATH_BASE / 'AbacusSummit_{}'.format(simulation) /
-        'halos' / 'z{:.3f}'.format(redshift), fields=fields,
-        filter_func=(lambda h: h['N'] >= 300))
+        ABACUS_SUMMIT_PATH_DISK / f"AbacusSummit_{simulation}" /
+        "halos" / f"z{redshift:.3f}", fields=fields,
+        filter_func=(lambda h: h["N"] >= 300))
     halos = halocat.halos
 
-    mdef = '{:.0f}m'.format(halocat.header['SODensityL1'])
-    halos['halo_m{}'.format(mdef)] = (
-        halos['N'] * halocat.header['ParticleMassHMsun'])
-    halos.remove_column('N')
-    halos.rename_column('r100_L2com', 'halo_r{}'.format(mdef))
+    mdef = f"{halocat.header['SODensityL1']:.0f}m"
+    halos[f"halo_m{mdef}"] = halos["N"] * halocat.header["ParticleMassHMsun"]
+    halos.remove_column("N")
+    halos.rename_column("r100_L2com", f"halo_r{mdef}")
 
-    halos['x_L2com'] += halocat.header['BoxSize'] / 2.0
-    halos['halo_x'] = halos['x_L2com'][:, 0]
-    halos['halo_y'] = halos['x_L2com'][:, 1]
-    halos['halo_z'] = halos['x_L2com'][:, 2]
-    halos.remove_column('x_L2com')
+    halos["x_L2com"] += halocat.header["BoxSize"] / 2.0
+    halos["halo_x"] = halos["x_L2com"][:, 0]
+    halos["halo_y"] = halos["x_L2com"][:, 1]
+    halos["halo_z"] = halos["x_L2com"][:, 2]
+    halos.remove_column("x_L2com")
 
-    halos['halo_vx'] = halos['v_L2com'][:, 0]
-    halos['halo_vy'] = halos['v_L2com'][:, 1]
-    halos['halo_vz'] = halos['v_L2com'][:, 2]
-    halos.remove_column('v_L2com')
+    halos["halo_vx"] = halos["v_L2com"][:, 0]
+    halos["halo_vy"] = halos["v_L2com"][:, 1]
+    halos["halo_vz"] = halos["v_L2com"][:, 2]
+    halos.remove_column("v_L2com")
 
-    halos['rvcirc_max_L2com'] /= 2.16258
-    halos.rename_column('rvcirc_max_L2com', 'halo_rs')
+    halos["rvcirc_max_L2com"] /= 2.16258
+    halos.rename_column("rvcirc_max_L2com", "halo_rs")
 
     return halos
 
@@ -254,58 +256,64 @@ def read_abacus_summit_halos(simulation, redshift):
 def read_abacus_summit_particles(simulation, redshift):
 
     ptcls = []
-    for ptcl_type in ['field', 'halo']:
+    for ptcl_type in ["field", "halo"]:
+        if ptcl_type == "field" and np.any(np.isclose(redshift, [0.3, 0.4])):
+            subprocess.run(["htar", "-x", "-f", ABACUS_SUMMIT_PATH_TAPE /
+                            f"AbacusSummit_{simulation}" /
+                            f"Abacus_AbacusSummit_{simulation}_halos.tar",
+                            f"./halos/z{redshift:.3f}/field_rv_A"])
+            path = Path()
+        else:
+            path = ABACUS_SUMMIT_PATH_DISK / f"AbacusSummit_{simulation}"
         for i in range(34):
-            path = (
-                ABACUS_SUMMIT_PATH_BASE / 'AbacusSummit_{}'.format(
-                    simulation) / 'halos' / 'z{:.3f}'.format(redshift) /
-                '{}_rv_A'.format(ptcl_type) /
-                '{}_rv_A_{:03d}.asdf'.format(ptcl_type, i))
-            ptcls_tmp = read_asdf(path, load=['pos'])
+            ptcls_tmp = read_asdf(
+                path / "halos" / f"z{redshift:.3f}" / f"{ptcl_type}_rv_A" /
+                f"{ptcl_type}_rv_A_{i:03d}.asdf", load=["pos"])
             ptcls_tmp = ptcls_tmp[
                 np.random.random(len(ptcls_tmp)) < 0.00025 / 0.03]
             ptcls.append(ptcls_tmp)
             gc.collect()
 
     ptcls = vstack(ptcls)
+    shutil.rmtree("halos", ignore_errors=True)
 
-    path = (ABACUS_SUMMIT_PATH_BASE / 'AbacusSummit_{}'.format(
-        simulation) / 'info' / 'abacus.par')
+    path = (ABACUS_SUMMIT_PATH_DISK / f"AbacusSummit_{simulation}" / "info" /
+            "abacus.par")
     with open(path) as fstream:
         line = fstream.readlines()[3]
-        assert 'BoxSize' in line
-        boxsize = float(line.split('=')[1])
-    ptcls['x'] = ptcls['pos'][:, 0] + boxsize / 2.0
-    ptcls['y'] = ptcls['pos'][:, 1] + boxsize / 2.0
-    ptcls['z'] = ptcls['pos'][:, 2] + boxsize / 2.0
-    ptcls.remove_column('pos')
+        assert "BoxSize" in line
+        boxsize = float(line.split("=")[1])
+    ptcls["x"] = ptcls["pos"][:, 0] + boxsize / 2.0
+    ptcls["y"] = ptcls["pos"][:, 1] + boxsize / 2.0
+    ptcls["z"] = ptcls["pos"][:, 2] + boxsize / 2.0
+    ptcls.remove_column("pos")
     return ptcls
 
 
 def main():
 
     parser = argparse.ArgumentParser(
-        description='Download/read and reduce an Aemulus Alpha or Abacus' +
-        'Summit simulation. For AbacusSummit, you need to run this script ' +
-        'on NERSC.')
-    parser.add_argument('suite', help='simulation suite',
-                        choices=['AemulusAlpha', 'AbacusSummit'])
-    parser.add_argument('redshift', help='simulation redshift', type=float)
-    parser.add_argument('--cosmo', help='simulation cosmology, default is 0',
+        description="Download/read and reduce an Aemulus Alpha or Abacus" +
+        "Summit simulation. For AbacusSummit, you need to run this script " +
+        "on NERSC.")
+    parser.add_argument("suite", help="simulation suite",
+                        choices=["AemulusAlpha", "AbacusSummit"])
+    parser.add_argument("redshift", help="simulation redshift", type=float)
+    parser.add_argument("--cosmo", help="simulation cosmology, default is 0",
                         type=int, default=0)
-    parser.add_argument('--phase', help='simulation phase, default is 0',
+    parser.add_argument("--phase", help="simulation phase, default is 0",
                         type=int, default=0)
-    parser.add_argument('--config', default=None,
-                        help='simulation configuration to assume')
-    parser.add_argument('--particles', action='store_true',
-                        help='whether to download particles instead of halos')
+    parser.add_argument("--config", default=None,
+                        help="simulation configuration to assume")
+    parser.add_argument("--particles", action="store_true",
+                        help="whether to download particles instead of halos")
 
     args = parser.parse_args()
 
     name = database.simulation_name(
         args.suite, i_cosmo=args.cosmo, i_phase=args.phase, config=args.config)
 
-    print('Parsing data for {} at z={:.2f}...'.format(name, args.redshift))
+    print(f"Parsing data for {name} at z={args.redshift:.2f}...")
 
     path = database.directory(
         args.suite, args.redshift, i_cosmo=args.cosmo, i_phase=args.phase,
@@ -313,22 +321,22 @@ def main():
     path.mkdir(parents=True, exist_ok=True)
 
     if not args.particles:
-        subpath = 'halos'
-        if args.suite == 'AemulusAlpha':
+        subpath = "halos"
+        if args.suite == "AemulusAlpha":
             data = download_aemulus_alpha_halos(name, args.redshift)
         else:
             data = read_abacus_summit_halos(name, args.redshift)
     else:
-        subpath = 'particles'
-        if args.suite == 'AemulusAlpha':
+        subpath = "particles"
+        if args.suite == "AemulusAlpha":
             data = download_aemulus_alpha_particles(name, args.redshift)
         else:
             data = read_abacus_summit_particles(name, args.redshift)
 
-    print('Writing results to {}.'.format(path / 'snapshot.hdf5'))
-    data.write(path / 'snapshot.hdf5', path=subpath, overwrite=True,
+    print(f"Writing results to {path / 'snapshot.hdf5'}.")
+    data.write(path / "snapshot.hdf5", path=subpath, overwrite=True,
                append=True)
-    print('Done!')
+    print("Done!")
 
 
 if __name__ == "__main__":
