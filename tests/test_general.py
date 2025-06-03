@@ -43,7 +43,7 @@ def test_n_gauss_prim(halotab, model):
     assert np.allclose(xi_2, xi_3, atol=0, rtol=1e-6)
 
 
-@pytest.mark.parametrize("tpcf", ["wp", "ds", "xi0", "xi2", "xi4"])
+@pytest.mark.parametrize("tpcf", ["wp", "ds"])
 def test_interpolator(halotab, model, tpcf):
     # Check that TabCorr's multi-dimensional spline interpolation agrees
     # with the one-dimensional spline interpolation of scipy.

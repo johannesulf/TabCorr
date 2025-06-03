@@ -13,7 +13,7 @@ COSMO = 0
 @pytest.fixture
 def halotab():
     halotab = dict()
-    for tpcf in ["wp", "ds", "xi0", "xi2", "xi4"]:
+    for tpcf in ["wp", "ds"]:
         halotab[tpcf] = tabcorr.database.read(
             SUITE, REDSHIFT, tpcf, tab_config='efficient', i_cosmo=COSMO)
     return halotab

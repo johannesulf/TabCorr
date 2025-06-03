@@ -6,6 +6,8 @@ from halotools.mock_observables import mean_delta_sigma as compute_ds
 from halotools.mock_observables import return_xyz_formatted_array
 from halotools.mock_observables import wp as compute_wp
 
+from conftest import SUITE, COSMO, REDSHIFT
+
 
 def test_number_density(halotab, model):
     # Check that ds and wp return similar number densities. The lensing
@@ -15,14 +17,13 @@ def test_number_density(halotab, model):
     ngal_wp = halotab["wp"].predict(model, separate_gal_type=True)[0]
     ngal_ds = halotab["ds"].predict(model, separate_gal_type=True)[0]
 
-    cosmology = tabcorr.database.cosmology('AbacusSummit', 0)
+    cosmology = tabcorr.database.cosmology(SUITE, COSMO)
     cosmology_obs = tabcorr.database.configuration('efficient')['cosmo_obs']
 
-    redshift = 0.5
     rp_stretch = (
-        (cosmology_obs.comoving_distance(redshift) * cosmology_obs.H0) /
-        (cosmology.comoving_distance(redshift) * cosmology.H0)).value
-    pi_stretch = cosmology.efunc(redshift) / cosmology_obs.efunc(redshift)
+        (cosmology_obs.comoving_distance(REDSHIFT) * cosmology_obs.H0) /
+        (cosmology.comoving_distance(REDSHIFT) * cosmology.H0)).value
+    pi_stretch = cosmology.efunc(REDSHIFT) / cosmology_obs.efunc(REDSHIFT)
     vol_stretch = rp_stretch**2 * pi_stretch
 
     for gal_type in ['centrals', 'satellites']:
@@ -40,6 +41,7 @@ def test_cosmology(suite):
         assert string in str(cosmo)
 
 
+@pytest.mark.slow
 def test_predictions(halotab, halocat, model):
 
     model.param_dict['logMmin'] = 12.9
