@@ -247,7 +247,7 @@ def main():
     for tpcf in [args.tpcf] if args.tpcf != 'xi' else ['xi0', 'xi2', 'xi4']:
         tabcorr_list = [TabCorr.read(path / '{}_{}.hdf5'.format(
             tpcf, i)) for i in range(len(param_dict_table))]
-        halotab = Interpolator(tabcorr_list, param_dict_table, spline=True)
+        halotab = Interpolator(tabcorr_list, param_dict_table)
         halotab.write(database.directory(
             args.suite, args.redshift, i_cosmo=args.cosmo, i_phase=args.phase,
             config=args.sim_config) / '{}_{}.hdf5'.format(
