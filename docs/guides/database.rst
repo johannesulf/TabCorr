@@ -68,16 +68,16 @@ The following data products are avilable on `zenodo <https://zenodo.org/records/
       - aemulus
     * - AbacusSummit
       - Base
-      - all[1]_
+      - all\ [1]_
       - 0
       - 0.5
       - :math:`w_{\rm p}`, :math:`\xi_{0, 2, 4}`, :math:`\Delta\Sigma`
       - efficient
     * - AbacusSummit
       - Base
-      - all[1]_ :math:`\Lambda`CDM with :math:`\sum m_\nu = 0.06 \, \mathrm{eV}`
+      - all\ [1]_ :math:`\Lambda`\ CDM with :math:`\sum m_\nu = 0.06 \, \mathrm{eV}`
       - 0
-      - 0.2, 0.3, 0.4, 0.8[2]_
+      - 0.2, 0.3, 0.4, 0.8\ [2]_
       - :math:`w_{\rm p}`, :math:`\Delta\Sigma`
       - efficient
     * - AbacusSummit
@@ -96,4 +96,4 @@ Please have a look at the ``scripts`` folder in the `GitHub repository <https://
 Attribution
 -----------
 
-If you're using the data from AemulusAlpha in your published work, you must cite `DeRose et al. (2019) <https://doi.org/10.3847/1538-4357/ab1085>`_ for creating these simulations. Similarly, if you use AbacusSummit, please cite `Maksimova et al. (2021) <https://academic.oup.com/mnras/article/508/3/4017/6366248>`_, `Garrison et al. (2021) <https://academic.oup.com/mnras/article/508/1/575/6366254>`_, and `Hadzhiyska et al. (2021) <https://academic.oup.com/mnras/advance-article/doi/10.1093/mnras/stab2980/6402914>`_. In all cases, I would appreciate a reference to `Lange et al. (2023) <https://doi.org/10.1093/mnras/stad473>`_ where I created the tabulated correlation functions.
+If you're using the data from AemulusAlpha in your published work, you must cite `DeRose et al. (2019) <https://doi.org/10.3847/1538-4357/ab1085>`_ for creating these simulations. Similarly, if you use AbacusSummit, please cite `Maksimova et al. (2021) <https://doi.org/10.1093/mnras/stab2484>`_, `Garrison et al. (2021) <https://doi.org/10.1093/mnras/stab2482>`_, and `Hadzhiyska et al. (2021) <https://doi.org/10.1093/mnras/stab2980>`_. In all cases, I would appreciate a reference to `Lange et al. (2023) <https://doi.org/10.1093/mnras/stad473>`_ where I created the tabulated correlation functions.
