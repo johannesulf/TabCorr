@@ -1,8 +1,8 @@
 TabCorr: Tabulated Correlation Functions
 ########################################
 
-.. image:: https://img.shields.io/pypi/v/tabcorr?color=blue)
-.. image:: https://img.shields.io/github/license/johannesulf/TabCorr?color=blue)
+.. image:: https://img.shields.io/pypi/v/tabcorr?color=blue
+.. image:: https://img.shields.io/github/license/johannesulf/TabCorr?color=blue
 .. image:: https://img.shields.io/github/languages/top/johannesulf/TabCorr
 
 This Python module provides extremely efficient and precise calculations of galaxy correlation functions in halotools using tabulated values. It is specifically intended for Markov chain Monte Carlo (MCMC) exploration of the galaxy-halo connection. It implements the method described in `Zheng & Guo (2016) <https://doi.org/10.1093/mnras/stw523>`_ of tabulating correlation functions that only need to be convolved with the mean halo occupation to obtain the full correlation function of galaxies.
@@ -12,7 +12,8 @@ This Python module provides extremely efficient and precise calculations of gala
     :caption: User Guide
     :glob:
 
-    guides/*
+    guides/overview
+    guides/database
 
 
 .. toctree::

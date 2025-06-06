@@ -1,5 +1,5 @@
-TabCorr Database
-================
+Database
+========
 
 The tabulation of the halo correlation functions can be computationally demanding. Therefore, many results are available as part of the TabCorr database. You can interact with the data from within TabCorr via the :py:meth:`tabcorr.database` module. For this to work, the environment variable ``TABCORR_DATABASE`` needs to be set. This can be done via ``export TABCORR_DATABASE=<PATH>``, where ``<PATH>`` is the path containing the database folders, e.g. the `AemulusAlpha` folder. See the following code snippet for basic usage.
 
