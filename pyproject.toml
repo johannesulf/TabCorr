@@ -4,7 +4,7 @@ build-backend = "flit_core.buildapi"
 
 [project]
 name = "tabcorr"
-authors = [{name = "Johannes U. Lange", email = "julange.astro@pm.me"}]
+authors = [{name = "Johannes U. Lange", email = "jlange@american.edu"}]
 readme = "README.md"
 license = {file = "LICENSE"}
 classifiers = ["License :: OSI Approved :: MIT License"]
