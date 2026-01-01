@@ -657,9 +657,12 @@ class TabCorr:
         ngal_dict = {}
         xi_dict = {}
 
+        def decode_if_bytes(x):
+            return x.decode() if isinstance(x, np.bytes_) else x
+
         for gal_type in np.unique(self.gal_type['gal_type']):
             mask = self.gal_type['gal_type'] == gal_type
-            ngal_dict[gal_type] = np.sum(ngal[mask])
+            ngal_dict[decode_if_bytes(gal_type)] = np.sum(ngal[mask])
 
         if self.attrs['mode'] == 'auto':
             for gal_type_1, gal_type_2 in (
@@ -671,13 +674,14 @@ class TabCorr:
                     np.outer(
                     gal_type_2 == self.gal_type['gal_type'],
                     gal_type_1 == self.gal_type['gal_type']))
-                xi_dict['%s-%s' % (gal_type_1, gal_type_2)] = np.sum(
-                    xi * mask, axis=1).reshape(self.tpcf_shape)
+                xi_dict[f'{decode_if_bytes(gal_type_1)}-' +
+                        f'{decode_if_bytes(gal_type_2)}'] = np.sum(
+                            xi * mask, axis=1).reshape(self.tpcf_shape)
 
         elif self.attrs['mode'] == 'cross':
             for gal_type in np.unique(self.gal_type['gal_type']):
                 mask = self.gal_type['gal_type'] == gal_type
-                xi_dict[gal_type] = np.sum(
+                xi_dict[decode_if_bytes(gal_type)] = np.sum(
                     xi * mask, axis=1).reshape(self.tpcf_shape)
 
         return ngal_dict, xi_dict

@@ -14,8 +14,8 @@ def test_number_density(halotab, model):
     # has many more bins so should be more accurate. Also note that wp
     # corrects for the assumed cosmology while ds does not.
 
-    ngal_wp = halotab["wp"].predict(model, separate_gal_type=True)[0]
-    ngal_ds = halotab["ds"].predict(model, separate_gal_type=True)[0]
+    ngal_wp = halotab['wp'].predict(model, separate_gal_type=True)[0]
+    ngal_ds = halotab['ds'].predict(model, separate_gal_type=True)[0]
 
     cosmology = tabcorr.database.cosmology(SUITE, COSMO)
     cosmology_obs = tabcorr.database.configuration('efficient')['cosmo_obs']
@@ -33,7 +33,7 @@ def test_number_density(halotab, model):
 
 @pytest.mark.parametrize("suite", ["AemulusAlpha", "AbacusSummit"])
 def test_cosmology(suite):
-    # Check that that the cosmologie work as expected.
+    # Check that that the cosmologies work as expected.
 
     cosmo = tabcorr.database.cosmology(suite)
 
