@@ -2,10 +2,9 @@
 
 import h5py
 import numpy as np
-
 from astropy.table import Table
 
-from . import TabCorr
+from .tabcorr import TabCorr
 
 
 class Interpolator:
@@ -30,8 +29,9 @@ class Interpolator:
 
         """
         if len(tabcorr_list) != len(param_dict_table):
-            raise ValueError("The number of TabCorr instances does not match" +
-                             " the number of entries in 'param_dict_table'.")
+            msg = ("The number of TabCorr instances does not match the number "
+                   "of entries in `param_dict_table`.")
+            raise ValueError(msg)
 
         self.tabcorr_list = tabcorr_list
         self.param_dict_table = param_dict_table.copy()
@@ -53,8 +53,8 @@ class Interpolator:
                 np.unique(np.stack(self.param_dict_table),
                           return_counts=True)[1] == 1)
         except AssertionError:
-            raise ValueError(
-                "The 'param_dict_table' does not describe a grid.")
+            msg = "`param_dict_table` does not describe a grid."
+            raise ValueError(msg)
 
         self.param_dict_table['tabcorr_index'] = np.arange(len(
             self.param_dict_table))
@@ -91,7 +91,7 @@ class Interpolator:
             param_dict_table.remove_column('tabcorr_index')
             for i in range(len(param_dict_table)):
                 tabcorr_list.append(
-                    TabCorr.read(fstream['tabcorr_{}'.format(i)]))
+                    TabCorr.read(fstream[f'tabcorr_{i}']))
 
         return Interpolator(tabcorr_list, param_dict_table)
 
@@ -119,7 +119,7 @@ class Interpolator:
             self.param_dict_table.write(fstream, path='param_dict_table')
             for i in range(len(self.param_dict_table)):
                 self.tabcorr_list[i].write(
-                    fstream.create_group('tabcorr_{}'.format(i)))
+                    fstream.create_group(f'tabcorr_{i}'))
 
     def predict(self, model, separate_gal_type=False, n_gauss_prim=10,
                 extrapolate=False, check_consistency=True, **occ_kwargs):
@@ -172,9 +172,9 @@ class Interpolator:
             try:
                 x_model[i] = model.param_dict[key]
             except KeyError:
-                raise ValueError(
-                    'The key {} is not present in the parameter '.format(key) +
-                    'dictionary of the model.')
+                msg = (f"The key {key} is not present in the parameter "
+                       "dictionary of the model.")
+                raise ValueError(msg)
 
         # Calculate the mean occupation numbers, avoiding to calculate
         # those repeatedly for identical halo tables.
@@ -197,8 +197,8 @@ class Interpolator:
 
         for i in range(2):
             if separate_gal_type:
-                output.append(dict())
-                for key in results[0][i].keys():
+                output.append({})
+                for key in results[0][i]:
                     data = np.array([r[i][key] for r in results])
                     data = data.reshape([len(xp) for xp in self.xp] +
                                         list(data.shape[1:]))
@@ -321,9 +321,9 @@ def spline_interpolate(x, xp, a, yp, extrapolate=False):
             i_spline = len(xpi) - 2
         if i_spline < 0 or i_spline >= len(xpi) - 1:
             if not extrapolate:
-                raise ValueError(
-                    'The x-coordinates are outside of the interpolation ' +
-                    'range and extrapolation is turned off.')
+                msg = ("The x-coordinates are outside of the interpolation "
+                       "range and extrapolation is turned off.")
+                raise ValueError(msg)
             else:
                 i_spline = min(max(i_spline, 0), len(xpi) - 2)
         yp = np.einsum('ij,j...,i', ai[i_spline], yp, xi**np.arange(4))

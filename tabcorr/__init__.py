@@ -1,9 +1,8 @@
 """Tabulated Correlation Functions"""
 
-from .tabcorr import TabCorr
+from . import corrfunc, database
 from .interpolator import Interpolator
-from . import corrfunc
-from . import database
+from .tabcorr import TabCorr
 
 __version__ = '1.2.1'
-__all__ = ["TabCorr", "Interpolator", "corrfunc", "database"]
+__all__ = ["Interpolator", "TabCorr", "corrfunc", "database"]

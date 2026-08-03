@@ -1,22 +1,22 @@
 """Module providing database capabilities."""
 
-import numpy as np
 import os
-
-from astropy import units as u
-from astropy.table import Table
-from astropy.cosmology import Flatw0waCDM, FlatwCDM, Planck15, Parameter
 from pathlib import Path
 
-from . import Interpolator
+import numpy as np
+from astropy import units as u
+from astropy.cosmology import Flatw0waCDM, FlatwCDM, Parameter, Planck15
+from astropy.table import Table
+
+from .interpolator import Interpolator
 
 
-def configuration(config_str):
+def configuration(name):
     """Describe the tabulation configuration used.
 
     Parameters
     ----------
-    config_str : str
+    name : str
         String describing the configuration. You can specify a mixture of
         different configuations by separating them with a `_`. In this case,
         the first configurations in the list always take precedence in
@@ -24,7 +24,7 @@ def configuration(config_str):
 
     Returns
     -------
-    config_dict : dict
+    config : dict
         Dictionary descibing the configuration, i.e. radial binning, number
         of satellites per halo etc.
 
@@ -34,44 +34,43 @@ def configuration(config_str):
         If an unkown configuration was requested.
 
     """
-    config_list = config_str.split('_')
+    choices = name.split('_')
+    choices.append('default')
 
-    for config in config_list:
-        if config not in ['aemulus', 'default', 'efficient']:
-            raise ValueError('Unkown configuration {}.'.format(config))
+    for choice in choices:
+        if choice not in ['aemulus', 'default', 'efficient']:
+            raise ValueError(f"Unkown configuration '{choice}'.")
 
-    config_list.append('default')
-
-    config_dict = {}
-    config_dict['s_bins'] = {'default': np.logspace(-1.0, 1.8, 15),
-                             'aemulus': np.logspace(-1, 1.78, 10)}
-    config_dict['rp_wp_bins'] = {'default': np.logspace(-1.0, 1.8, 15),
-                                 'aemulus': np.logspace(-1, 1.78, 10)}
-    config_dict['pi_max'] = {'default': 80}
-    config_dict['rp_ds_bins'] = {'default': np.logspace(-1.0, 1.8, 15),
-                                 'efficient': np.logspace(-1.0, 1.6, 14)}
-    config_dict['mu_bins'] = {'default': np.linspace(0, 1, 21),
-                              'aemulus': np.linspace(0, 1, 41)}
-    config_dict['cosmo_obs'] = {'default': Planck15, 'aemulus': None}
-    config_dict['alpha_c_bins'] = {'default': np.linspace(0.0, 0.4, 4)}
-    config_dict['alpha_s_bins'] = {'default': np.linspace(0.8, 1.2, 4)}
-    config_dict['conc_gal_bias_bins'] = {
+    config = {}
+    config['s_bins'] = {'default': np.logspace(-1.0, 1.8, 15),
+                        'aemulus': np.logspace(-1, 1.78, 10)}
+    config['rp_wp_bins'] = {'default': np.logspace(-1.0, 1.8, 15),
+                            'aemulus': np.logspace(-1, 1.78, 10)}
+    config['pi_max'] = {'default': 80}
+    config['rp_ds_bins'] = {'default': np.logspace(-1.0, 1.8, 15),
+                            'efficient': np.logspace(-1.0, 1.6, 14)}
+    config['mu_bins'] = {'default': np.linspace(0, 1, 21),
+                         'aemulus': np.linspace(0, 1, 41)}
+    config['cosmo_obs'] = {'default': Planck15, 'aemulus': None}
+    config['alpha_c_bins'] = {'default': np.linspace(0.0, 0.4, 4)}
+    config['alpha_s_bins'] = {'default': np.linspace(0.8, 1.2, 4)}
+    config['conc_gal_bias_bins'] = {
         'default': np.geomspace(1.0 / 3.0, 3.0, 4)}
-    config_dict['sats_per_prim_haloprop'] = {'default': 2e-13,
-                                             'efficient': 1e-13}
-    config_dict['downsample'] = {'default': 1.0,
-                                 'efficient': (lambda x: x / 1e13)}
+    config['sats_per_prim_haloprop'] = {'default': 2e-13,
+                                        'efficient': 1e-13}
+    config['downsample'] = {'default': 1.0,
+                            'efficient': (lambda x: x / 1e13)}
 
-    for parameter in config_dict.keys():
-        for config in config_list:
-            if config in config_dict[parameter].keys():
-                config_dict[parameter] = config_dict[parameter][config]
+    for key, options in config.items():
+        for choice in choices:
+            if choice in options:
+                config[key] = options[choice]
                 break
 
-    return config_dict
+    return config
 
 
-class TabCorrCosmology():
+class TabCorrCosmology:
 
     sigma8 = Parameter(fvalidate='float')
     ns = Parameter(fvalidate='float')
@@ -118,8 +117,8 @@ def cosmology(suite, i_cosmo=0):
         table = Table.read(Path(__file__).absolute().parent / 'as_cosmos.csv')
         table['i_cosmo'] = np.array([r[-3:] for r in table['root']], dtype=int)
         if i_cosmo not in table['i_cosmo']:
-            raise ValueError('Cosmology number {} not in AbacusSummit.'.format(
-                i_cosmo))
+            msg = f"Cosmology number {i_cosmo} not in AbacusSummit."
+            raise ValueError(msg)
         cosmo_dict = dict(table[table['i_cosmo'] == i_cosmo][0])
         h = cosmo_dict['h']
         omega_m = cosmo_dict['omega_b'] + cosmo_dict['omega_cdm']
@@ -144,8 +143,9 @@ def cosmology(suite, i_cosmo=0):
             cosmo_dict = dict(Table.read(path / 'aa_test_cosmos.txt',
                                          format='ascii')[i_cosmo - 40])
         else:
-            raise ValueError('Unknown cosmology number {}. '.format(i_cosmo) +
-                             'Must be in the range from 0 to 46.')
+            msg = ("Unknown cosmology number {i_cosmo}. Must be in the range "
+                   "from 0 to 46.")
+            raise ValueError(msg)
         cosmo_dict['Ob0'] = cosmo_dict['ombh2'] / (cosmo_dict['H0'] / 100)**2
         cosmo_dict['Oc0'] = cosmo_dict['omch2'] / (cosmo_dict['H0'] / 100)**2
         cosmo_dict['Om0'] = cosmo_dict['Ob0'] + cosmo_dict['Oc0']
@@ -155,7 +155,8 @@ def cosmology(suite, i_cosmo=0):
             Tcmb0=2.7255 * u.K, sigma8=cosmo_dict['sigma8'],
             ns=cosmo_dict['ns'])
     else:
-        raise ValueError('Unkown simulation suite {}.'.format(suite))
+        msg = f"Unkown simulation suite {suite}."
+        raise ValueError(msg)
 
 
 def simulation_name(suite, i_cosmo=0, i_phase=0, config=None):
@@ -191,23 +192,25 @@ def simulation_name(suite, i_cosmo=0, i_phase=0, config=None):
         if config is None:
             config = 'base'
 
-        return '{}_c{:03d}_ph{:03d}'.format(config, i_cosmo, i_phase)
+        return f'{config}_c{i_cosmo:03d}_ph{i_phase:03d}'
 
     elif suite == 'AemulusAlpha':
 
         if i_cosmo >= 0 and i_cosmo < 40:
-            return 'Box{:03d}'.format(i_cosmo)
+            return f'Box{i_cosmo:03d}'
         elif i_cosmo >= 0 and i_cosmo < 47:
             if i_phase > 6:
-                raise ValueError(
-                    'Unknown phase number {}.'.format(i_phase))
-            return 'TestBox{:03d}-{:03d}'.format(i_cosmo - 40, i_phase)
+                msg = f"Unknown phase number {i_phase}."
+                raise ValueError(msg)
+            return f'TestBox{i_cosmo - 40:03d}-{i_phase:03d}'
         else:
-            raise ValueError('Unknown cosmology number {}. '.format(i_cosmo) +
-                             'Must be in the range from 0 to 46.')
+            msg = (f"Unknown cosmology number {i_cosmo}. Must be in the range "
+                   "from 0 to 46.")
+            raise ValueError(msg)
 
     else:
-        raise ValueError('Unkown simulation suite {}.'.format(suite))
+        msg = f"Unkown simulation suite {suite}."
+        raise ValueError(msg)
 
 
 def directory(suite, redshift, i_cosmo=0, i_phase=0, config=None):
@@ -242,12 +245,11 @@ def directory(suite, redshift, i_cosmo=0, i_phase=0, config=None):
     try:
         path = Path(os.environ['TABCORR_DATABASE'])
     except KeyError:
-        raise RuntimeError(
-            "You must set the TABCORR_DATABASE environment variable.")
+        msg = "You must set the TABCORR_DATABASE environment variable."
+        raise RuntimeError(msg)
     name = simulation_name(suite, i_cosmo=i_cosmo, i_phase=i_phase,
                            config=config)
-    return (path / suite / name / '{:.2f}'.format(redshift).replace(
-        '.', 'p'))
+    return (path / suite / name / f'{redshift:.2f}'.replace('.', 'p'))
 
 
 def read(suite, redshift, tpcf, i_cosmo=0, i_phase=0, sim_config=None,
@@ -283,7 +285,7 @@ def read(suite, redshift, tpcf, i_cosmo=0, i_phase=0, sim_config=None,
     path = directory(
         suite, redshift, i_cosmo=i_cosmo, i_phase=i_phase, config=sim_config)
 
-    return Interpolator.read(path / '{}_{}.hdf5'.format(tpcf, tab_config))
+    return Interpolator.read(path / f'{tpcf}_{tab_config}.hdf5')
 
 
 # Define an alias for backwards compatibility.

@@ -1,20 +1,26 @@
 """Module implementing the halo tabulation method."""
 
-import h5py
-import tqdm
 import itertools
-import numpy as np
-from random import shuffle
 from multiprocessing import Pool
-from scipy.interpolate import interp1d
+from random import shuffle
+
+import h5py
+import numpy as np
+import tqdm
 from astropy.table import Table, vstack
-from halotools.sim_manager import sim_defaults
-from halotools.empirical_models import HodModelFactory, model_defaults
-from halotools.empirical_models import TrivialPhaseSpace, Zheng07Cens
-from halotools.empirical_models import NFWPhaseSpace, Zheng07Sats
+from halotools.empirical_models import (
+    HodModelFactory,
+    NFWPhaseSpace,
+    TrivialPhaseSpace,
+    Zheng07Cens,
+    Zheng07Sats,
+    model_defaults,
+)
 from halotools.mock_observables import return_xyz_formatted_array
+from halotools.sim_manager import sim_defaults
 from halotools.utils import crossmatch
 from halotools.utils.table_utils import compute_conditional_percentiles
+from scipy.interpolate import interp1d
 
 
 class TabCorr:
@@ -125,16 +131,18 @@ class TabCorr:
 
         Raises
         ------
-        ValueError
+        TypeError
             If invalid halo bins are given.
+        ValueError
+            If secondary halo percentiles are outside [0, 1].
         RuntimeError
             If TabCorr encounters an internal error.
 
         """
         if 'period' in tpcf_kwargs:
-            print('Warning: TabCorr will pass the keyword argument "period" ' +
-                  'to {} based on the Lbox argument of'.format(tpcf.__name__) +
-                  ' the halo catalog. The value you provided will be ignored.')
+            print("Warning: TabCorr will pass the keyword argument `period` "
+                  f"to {tpcf.__name__} based on the Lbox argument of the"
+                  "halo catalog. The value you provided will be ignored.")
             del tpcf_kwargs['period']
 
         halotab = cls()
@@ -165,24 +173,24 @@ class TabCorr:
         elif isinstance(log_prim_haloprop_bins, (list, np.ndarray)):
             log_prim_haloprop_bins = prim_haloprop_bins
         else:
-            raise ValueError('prim_haloprop_bins must be an int, list or ' +
-                             'numpy array.')
+            msg = "'prim_haloprop_bins' must be an int, list or numpy array."
+            raise TypeError(msg)
 
         if sec_haloprop_percentile_bins is None:
             sec_haloprop_percentile_bins = np.array([-1e-3, 1 + 1e-3])
         elif isinstance(sec_haloprop_percentile_bins, float):
-            if not (0 < sec_haloprop_percentile_bins and
-                    sec_haloprop_percentile_bins < 1):
-                raise ValueError('sec_haloprop_percentile_bins must be ' +
-                                 'between 0 and 1.')
+            if not (0 < sec_haloprop_percentile_bins < 1):
+                msg = "'sec_haloprop_percentile_bins' must be between 0 and 1."
+                raise ValueError(msg)
             sec_haloprop_percentile_bins = np.array(
                 [-1e-3, sec_haloprop_percentile_bins, 1 + 1e-3])
         elif isinstance(sec_haloprop_percentile_bins, int):
             sec_haloprop_percentile_bins = np.linspace(
                 -1e-3, 1 + 1e-3, sec_haloprop_percentile_bins + 1)
         else:
-            raise ValueError('sec_haloprop_percentile_bins must be an int, ' +
-                             'float, list or numpy array.')
+            msg = ("'sec_haloprop_percentile_bins' must be an int, float, "
+                   "list or numpy array.")
+            raise TypeError(msg)
 
         halos[sec_haloprop_key + '_percentile'] = (
             compute_conditional_percentiles(
@@ -228,9 +236,9 @@ class TabCorr:
 
         halotab.gal_type = vstack([halotab.gal_type, halotab.gal_type])
         halotab.gal_type['gal_type'] = np.concatenate((
-            np.repeat('centrals'.encode('utf8'),
+            np.repeat(b'centrals',
                       len(halotab.gal_type) // 2),
-            np.repeat('satellites'.encode('utf8'),
+            np.repeat(b'satellites',
                       len(halotab.gal_type) // 2)))
 
         # Now, we tabulate the correlation functions.
@@ -262,12 +270,12 @@ class TabCorr:
             halos[sec_haloprop_key + '_percentile'][idx_halos])
 
         if verbose:
-            print("Number of tracer particles: {0}".format(len(gals)))
+            print(f"Number of tracer particles: {len(gals)}")
 
         for xyz in ['xyz', 'yzx', 'zxy']:
 
             if verbose and project_xyz:
-                print("Projecting onto {0}-axis...".format(xyz[2]))
+                print(f"Projecting onto {xyz[2]}-axis...")
 
             pos = (return_xyz_formatted_array(
                 x=gals[xyz[0]], y=gals[xyz[1]], z=gals[xyz[2]],
@@ -293,15 +301,15 @@ class TabCorr:
                     try:
                         assert len(pos[i]) == int(halotab.gal_type['n_h'][i])
                     except AssertionError:
-                        raise RuntimeError('There was an internal error in ' +
-                                           'TabCorr. If possible, please ' +
-                                           'report this bug in the TabCorr ' +
-                                           'GitHub repository.')
+                        msg = ("There was an internal error in TabCorr.  If "
+                               "possible, please report this bug in the "
+                               "TabCorr GitHub repository.")
+                        raise RuntimeError(msg)
                 else:
                     if len(pos[i]) == 0 and halotab.gal_type['n_h'][i] != 0:
-                        raise RuntimeError(
-                            'There was at least one bin without satellite ' +
-                            'tracers. Increase sats_per_prim_haloprop.')
+                        msg = ("There was at least one bin without satellite "
+                               "tracers. Increase `sats_per_prim_haloprop`.")
+                        raise RuntimeError(msg)
 
                 if len(pos[i]) > 0:
 
@@ -393,19 +401,19 @@ class TabCorr:
             fstream = fname
 
         halotab.attrs = {}
-        for key in fstream.attrs.keys():
-            halotab.attrs[key] = fstream.attrs[key]
+        for key, value in fstream.items():
+            halotab.attrs[key] = value
 
         halotab.tpcf_matrix = fstream['tpcf_matrix'][()].astype(np.float64)
 
         halotab.tpcf_args = []
-        for key in fstream['tpcf_args'].keys():
-            halotab.tpcf_args.append(fstream['tpcf_args'][key][()])
+        for key, value in fstream['tpcf_args'].items():
+            halotab.tpcf_args.append(value[()])
         halotab.tpcf_args = tuple(halotab.tpcf_args)
         halotab.tpcf_kwargs = {}
         if 'tpcf_kwargs' in fstream:
-            for key in fstream['tpcf_kwargs'].keys():
-                halotab.tpcf_kwargs[key] = fstream['tpcf_kwargs'][key][()]
+            for key, value in fstream['tpcf_kwargs'].items():
+                halotab.tpcf_kwargs[key] = value[()]
         halotab.tpcf_shape = tuple(fstream['tpcf_shape'][()])
 
         if not isinstance(fname, h5py.Group):
@@ -450,11 +458,11 @@ class TabCorr:
         for i, arg in enumerate(self.tpcf_args):
             if (type(arg) is not np.ndarray or
                     np.prod(arg.shape) < max_args_size):
-                fstream['tpcf_args/arg_%d' % i] = arg
+                fstream[f'tpcf_args/arg_{i}'] = arg
         for key in self.tpcf_kwargs:
             if (type(self.tpcf_kwargs[key]) is not np.ndarray or
                     np.prod(self.tpcf_kwargs[key].shape) < max_args_size):
-                fstream['tpcf_kwargs/' + key] = self.tpcf_kwargs[key]
+                fstream[f'tpcf_kwargs/{key}'] = self.tpcf_kwargs[key]
         fstream['tpcf_shape'] = self.tpcf_shape
 
         if not isinstance(fname, h5py.Group):
@@ -498,18 +506,19 @@ class TabCorr:
                 assert (sorted(model.gal_types) == sorted(
                     ['centrals', 'satellites']))
             except AssertionError:
-                raise ValueError(
-                    'The model instance must only have centrals and ' +
-                    'satellites as galaxy types. Check the `gal_types` ' +
-                    'attribute of the model instance.')
+                msg = ("The model instance must only have centrals and "
+                       "satellites as galaxy types. Check the `gal_types` "
+                       "attribute of the model instance.")
+                raise ValueError(msg)
             try:
                 assert (model._input_model_dictionary['centrals_occupation']
                         .prim_haloprop_key == self.attrs['prim_haloprop_key'])
                 assert (model._input_model_dictionary['satellites_occupation']
                         .prim_haloprop_key == self.attrs['prim_haloprop_key'])
             except AssertionError:
-                raise ValueError('Mismatch in the primary halo properties ' +
-                                 'of the model and the TabCorr instance.')
+                msg = ("Mismatch in the primary halo properties of the model "
+                       "and the TabCorr instance.")
+                raise ValueError(msg)
 
             try:
                 if hasattr(
@@ -525,14 +534,16 @@ class TabCorr:
                         model._input_model_dictionary['satellites_occupation']
                         .sec_haloprop_key == self.attrs['sec_haloprop_key'])
             except AssertionError:
-                raise ValueError('Mismatch in the secondary halo properties ' +
-                                 'of the model and the TabCorr instance.')
+                msg = ("Mismatch in the secondary halo properties of the "
+                       "model and the TabCorr instance.")
+                raise ValueError(msg)
 
             try:
                 assert np.abs(model.redshift - self.attrs['redshift']) < 0.05
             except AssertionError:
-                raise ValueError('Mismatch in the redshift of the model and ' +
-                                 'the TabCorr instance.')
+                msg = ("Mismatch in the redshift of the model and the TabCorr "
+                       "instance.")
+                raise ValueError(msg)
 
         log_prim_haloprop_min = self.gal_type['log_prim_haloprop_min'].data
         log_prim_haloprop_max = self.gal_type['log_prim_haloprop_max'].data
@@ -881,7 +892,6 @@ def compute_tpcf_matrix(mode, pos, tpcf, period, tpcf_args, tpcf_kwargs,
         Shape of the two-point correlation function returned by `tpcf`.
 
     """
-    global GLOBAL_ARGS
     GLOBAL_ARGS['mode'] = mode
     GLOBAL_ARGS['pos'] = pos
     GLOBAL_ARGS['tpcf'] = tpcf

@@ -23,7 +23,7 @@ def wp(sample1, rp_bins, pi_max, sample2=None, period=None, do_auto=True,
     sample2 : numpy.ndarray, optional
         Numpy array containing the positions of a second sample of points.
         Default is None.
-    period : float or numpy.ndarray, optional
+    period : float, tuple, or numpy.ndarray, optional
         If a numpy array the periodic boundary conditions in each
         dimension. If a single scalar,  period is assumed to be the same in all
         dimensions. Default is None.
@@ -58,7 +58,7 @@ def wp(sample1, rp_bins, pi_max, sample2=None, period=None, do_auto=True,
         raise ValueError("'do_auto' and 'do_cross' cannot both be True or " +
                          "False.")
 
-    if isinstance(period, float) or isinstance(period, int):
+    if not hasattr(period, '__len__'):
         period = (period, period, period)
 
     if isinstance(period, np.ndarray):
@@ -107,7 +107,7 @@ def s_mu_tpcf(sample1, s_bins, mu_bins, sample2=None, period=None,
     sample2 : numpy.ndarray, optional
         Numpy array containing the positions of a second sample of points.
         Default is None.
-    period : float or numpy.ndarray, optional
+    period : float, tuple, or numpy.ndarray, optional
         If a numpy array the periodic boundary conditions in each
         dimension. If a single scalar,  period is assumed to be the same in all
         dimensions. Default is None.
@@ -148,7 +148,7 @@ def s_mu_tpcf(sample1, s_bins, mu_bins, sample2=None, period=None,
     except AssertionError:
         raise ValueError('Bins in mu must be uniform from 0 to 1.')
 
-    if isinstance(period, float) or isinstance(period, int):
+    if not hasattr(period, '__len__'):
         period = (period, period, period)
 
     if isinstance(period, np.ndarray):
