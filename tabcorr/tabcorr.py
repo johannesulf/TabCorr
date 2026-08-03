@@ -401,7 +401,7 @@ class TabCorr:
             fstream = fname
 
         halotab.attrs = {}
-        for key, value in fstream.items():
+        for key, value in fstream.attrs.items():
             halotab.attrs[key] = value
 
         halotab.tpcf_matrix = fstream['tpcf_matrix'][()].astype(np.float64)
