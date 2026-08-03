@@ -347,15 +347,14 @@ class TabCorr:
         if mode == 'auto':
             tpcf_matrix_flat = []
             for i in range(tpcf_matrix.shape[0]):
-                tpcf_matrix_flat.append(symmetric_matrix_to_array(
-                    tpcf_matrix[i]))
+                tpcf_matrix_flat.append(lower_triangle(tpcf_matrix[i]))
             tpcf_matrix = np.array(tpcf_matrix_flat)
 
         # Remove entries that don't have any halos.
         use = halotab.gal_type['n_h'] != 0
         halotab.gal_type = halotab.gal_type[use]
         if mode == 'auto':
-            use = symmetric_matrix_to_array(np.outer(use, use))
+            use = lower_triangle(np.outer(use, use))
         tpcf_matrix = tpcf_matrix[:, use]
 
         # Convert into number densities.
@@ -641,10 +640,8 @@ class TabCorr:
                 ngal_sq_index_2 = np.tile(np.arange(n_bins), n_bins).reshape(
                     n_bins, n_bins)
 
-                self.ngal_sq_index_1 = symmetric_matrix_to_array(
-                    ngal_sq_index_1, check_symmetry=False)
-                self.ngal_sq_index_2 = symmetric_matrix_to_array(
-                    ngal_sq_index_2, check_symmetry=False)
+                self.ngal_sq_index_1 = lower_triangle(ngal_sq_index_1)
+                self.ngal_sq_index_2 = lower_triangle(ngal_sq_index_2)
 
                 self.ngal_sq_prefactor = np.where(
                     self.ngal_sq_index_1 == self.ngal_sq_index_2, 1, 2)
@@ -679,7 +676,7 @@ class TabCorr:
             for gal_type_1, gal_type_2 in (
                     itertools.combinations_with_replacement(
                         np.unique(self.gal_type['gal_type']), 2)):
-                mask = symmetric_matrix_to_array(np.outer(
+                mask = lower_triangle(np.outer(
                     gal_type_1 == self.gal_type['gal_type'],
                     gal_type_2 == self.gal_type['gal_type']) |
                     np.outer(
@@ -749,7 +746,7 @@ def sort_into_bins(log_prim_haloprop, log_prim_haloprop_bins,
     counts = np.cumsum(counts)
     counts = np.insert(counts, 0, 0)
 
-    return [x_sorted[counts[i]:counts[i+1]] for i in range(len(counts) - 1)]
+    return [x_sorted[counts[i]:counts[i + 1]] for i in range(len(counts) - 1)]
 
 
 def distribution_index(x_min, x_max, x_mean):
@@ -772,6 +769,7 @@ def distribution_index(x_min, x_max, x_mean):
     n : float
         Index :math:`n` to reproduce the mean, but not smaller than -10 or
         larger than +10.
+
     """
     x_max = x_max / x_min
     x_mean = x_mean / x_min
@@ -782,43 +780,21 @@ def distribution_index(x_min, x_max, x_mean):
                     bounds_error=False)(x_mean)
 
 
-def symmetric_matrix_to_array(matrix, check_symmetry=True):
-    """Reduce a symmetric 2-dimensional matrix into 1-dimensional array.
+def lower_triangle(m):
+    """Return the one-dimensional lower triangle of a two-dimensional array.
 
     Parameters
     ----------
-    matrix : numpy.ndarray
-        Symmetric matrix
-    check_symmetry : bool, optional
-        Whether to check that `matrix` describes a symmetric matrix. Default is
-        True.
+    m : numpy.ndarray
+        Input array.
 
     Returns
     -------
-    m_array : numpy.ndarray
-        Array containing all unique values of `matrix`.
-
-    Raises
-    ------
-    ValueError
-        If `matrix` is not a symmetric matrix and `check_symmetry` is True.
+    tril : numpy.ndarray
+        Lower triangle of `m`.
 
     """
-    if check_symmetry:
-        try:
-            assert matrix.shape[0] == matrix.shape[1]
-            assert np.all(matrix == matrix.T)
-        except AssertionError:
-            raise ValueError('The matrix you provided is not symmetric.')
-
-    n_dim = matrix.shape[0]
-    sel = np.zeros((n_dim**2 + n_dim) // 2, dtype=int)
-
-    for i in range(matrix.shape[0]):
-        sel[(i*(i+1))//2:(i*(i+1))//2+(i+1)] = np.arange(
-            i*n_dim, i*n_dim + i + 1)
-
-    return matrix.ravel()[sel]
+    return m[np.tril_indices(len(m))]
 
 
 GLOBAL_ARGS = {}
@@ -852,7 +828,7 @@ def compute_tpcf(i):
         if len(pos[i_1]) > len(pos[i_2]):
             i_1, i_2 = i_2, i_1
         return i, tpcf(pos[i_1], *tpcf_args, sample2=pos[i_2] if i_1 != i_2
-                       else None,  do_auto=(i_1 == i_2), do_cross=(i_1 != i_2),
+                       else None, do_auto=(i_1 == i_2), do_cross=(i_1 != i_2),
                        period=period, **tpcf_kwargs)
     else:
         return i, tpcf(pos[i], *tpcf_args, period=period, **tpcf_kwargs)
