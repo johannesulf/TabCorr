@@ -1,7 +1,8 @@
 """Module implementing the halo tabulation method."""
 
 import itertools
-from multiprocessing import Pool
+import multiprocessing
+from queue import Queue, Empty
 from random import shuffle
 
 import h5py
@@ -37,7 +38,7 @@ class TabCorr:
                  sats_per_prim_haloprop=3e-12, downsample=1.0,
                  verbose=False, redshift_space_distortions=True,
                  cens_prof_model=None, sats_prof_model=None, project_xyz=False,
-                 cosmology_obs=None, num_threads=1, **tpcf_kwargs):
+                 cosmology_obs=None, n_jobs=1, **tpcf_kwargs):
         """Tabulate correlation functions for halos.
 
         Parameters
@@ -119,8 +120,8 @@ class TabCorr:
             If None, no correction for the AP effect is applied. Also, a
             correction for the AP effect is only applied for auto-correlation
             functions. Default is None.
-        num_threads : int, optional
-            How many threads to use for the tabulation. Default is 1.
+        n_jobs : int, optional
+            How many jobs to use for the tabulation. Default is 1.
         **tpcf_kwargs : dict, optional
             Keyword arguments passed to the `tpcf` function.
 
@@ -332,14 +333,14 @@ class TabCorr:
             if xyz == 'xyz':
                 tpcf_matrix, tpcf_shape = compute_tpcf_matrix(
                     mode, pos, tpcf, period, tpcf_args, tpcf_kwargs,
-                    num_threads=num_threads, verbose=verbose)
+                    n_jobs=n_jobs, verbose=verbose)
 
             if not project_xyz or mode == 'cross':
                 break
             elif xyz != 'xyz':
                 tpcf_matrix += compute_tpcf_matrix(
                     mode, pos, tpcf, period, tpcf_args, tpcf_kwargs,
-                    num_threads=num_threads, verbose=verbose)[0]
+                    n_jobs=n_jobs, verbose=verbose)[0]
 
         if project_xyz and mode == 'auto':
             tpcf_matrix /= 3.0
@@ -797,65 +798,28 @@ def lower_triangle(m):
     return m[np.tril_indices(len(m))]
 
 
-GLOBAL_ARGS = {}
-
-
-def compute_tpcf(i):
-    """Compute the two-point correlation for a given sample of tracers.
-
-    Parameters
-    ----------
-    i : int or tuple
-        Which  samples to calculate the two-point correlation function for.
-
-    Returns
-    -------
-    i : int or tuple
-        Which samples the two-point correlation function was calculated for.
-    xi : numpy.ndarray
-        The two-point correlation function.
-
-    """
-    mode = GLOBAL_ARGS['mode']
-    pos = GLOBAL_ARGS['pos']
-    tpcf = GLOBAL_ARGS['tpcf']
-    period = GLOBAL_ARGS['period']
-    tpcf_args = GLOBAL_ARGS['tpcf_args']
-    tpcf_kwargs = GLOBAL_ARGS['tpcf_kwargs']
-
-    if mode == 'auto':
-        i_1, i_2 = i
-        if len(pos[i_1]) > len(pos[i_2]):
-            i_1, i_2 = i_2, i_1
-        return i, tpcf(pos[i_1], *tpcf_args, sample2=pos[i_2] if i_1 != i_2
-                       else None, do_auto=(i_1 == i_2), do_cross=(i_1 != i_2),
-                       period=period, **tpcf_kwargs)
-    else:
-        return i, tpcf(pos[i], *tpcf_args, period=period, **tpcf_kwargs)
-
-
-def compute_tpcf_matrix(mode, pos, tpcf, period, tpcf_args, tpcf_kwargs,
-                        num_threads=1, verbose=False):
+def compute_tpcf_matrix(tpcf, mode, pos, period, tpcf_args, tpcf_kwargs,
+                        n_jobs=1, verbose=False):
     """Calculate the two-point correlation function matrix between all samples.
 
     Parameters
     ----------
+    tpcf : function
+        The halotools correlation function for which values are tabulated. Can
+        also be a custom function as long as it follows the halotools syntax.
     mode : string
         Whether an auto- ('auto') or a cross-correlation ('cross') function is
         be tabulated.
     pos : numpy.ndarray
-        Samples.
+        List of samples.
     period : numpy.ndarray
         Box size.
-    tpcf : function
-        The halotools correlation function for which values are tabulated. Can
-        also be a custom function as long as it follows the halotools syntax.
-    tpcf_args : tuple, optional
+    tpcf_args : tuple
         Positional arguments passed to the `tpcf` function.
-    tpcf_kwargs : dict, optional
+    tpcf_kwargs : dict
         Keyword arguments passed to the `tpcf` function.
-    num_threads : int, optional
-        How many threads to use for the tabulation. Default is 1.
+    n_jobs : int, optional
+        How many processes to use for the tabulation. Default is 1.
     verbose : bool, optional
         Whether the progress should be displayed. Default is False.
 
@@ -868,45 +832,95 @@ def compute_tpcf_matrix(mode, pos, tpcf, period, tpcf_args, tpcf_kwargs,
         Shape of the two-point correlation function returned by `tpcf`.
 
     """
-    GLOBAL_ARGS['mode'] = mode
-    GLOBAL_ARGS['pos'] = pos
-    GLOBAL_ARGS['tpcf'] = tpcf
-    GLOBAL_ARGS['period'] = period
-    GLOBAL_ARGS['tpcf_args'] = tpcf_args
-    GLOBAL_ARGS['tpcf_kwargs'] = tpcf_kwargs
 
-    tasks = [i for i in range(len(pos)) if len(pos[i]) > 0]
-
+    # Create task and result queue.
+    n_bins = len(pos)
+    task_queue = Queue() if n_jobs == 1 else multiprocessing.Queue()
+    result_queue = Queue() if n_jobs == 1 else multiprocessing.Queue()
     if mode == 'auto':
-        tasks = list(itertools.combinations_with_replacement(tasks, 2))
-
+        tasks = list(itertools.combinations_with_replacement(range(n_bins), 2))
+    else:
+        tasks = list(range(n_bins))
     shuffle(tasks)
+    for task in tasks:
+        task_queue.put(task)
 
-    if verbose:
-        pbar = tqdm.tqdm(total=len(tasks), smoothing=0)
+    args = (tpcf, mode, pos, period, tpcf_args, tpcf_kwargs, task_queue,
+            result_queue)
 
+    # Perform the computation.
+    if n_jobs == 1:
+        _compute_tpcf_matrix(*args, verbose=verbose)
+        results = [result_queue.get() for _ in result_queue.qsize()]
+    else:
+        processes = [multiprocessing.Process(
+            target=_compute_tpcf_matrix, args=args,
+            kwargs={'verbose': verbose if i == 0 else False}) for i in
+            range(n_jobs)]
+
+        for p in processes:
+            p.start()
+
+        results = []
+        while len(results) < len(tasks):
+            try:
+                results.append(result_queue.get(timeout=0.1))
+            except Empty:
+                pass
+
+        for p in processes:
+            p.join()
+
+    # Create the matrix.
     tpcf_matrix = None
 
-    with Pool(num_threads) as pool:
-        for i, xi in pool.imap_unordered(compute_tpcf, tasks):
+    for i, xi in results:
+        print(i, xi)
 
-            if tpcf_matrix is None:
-                if mode == 'auto':
-                    tpcf_matrix = np.zeros(
-                        (len(xi.ravel()), len(pos), len(pos)))
-                else:
-                    tpcf_matrix = np.zeros((len(xi.ravel()), len(pos)))
-
+        if tpcf_matrix is None:
             if mode == 'auto':
-                i_1, i_2 = i
-                tpcf_matrix[:, i_1, i_2] += xi.ravel()
-                tpcf_matrix[:, i_2, i_1] = tpcf_matrix[:, i_1, i_2]
+                tpcf_matrix = np.zeros(
+                    (len(xi.ravel()), len(pos), len(pos)))
             else:
-                tpcf_matrix[:, i] += xi.ravel()
+                tpcf_matrix = np.zeros((len(xi.ravel()), len(pos)))
 
-            if verbose:
-                pbar.update(1)
+        if mode == 'auto':
+            i_1, i_2 = i
+            tpcf_matrix[:, i_1, i_2] += xi.ravel()
+            tpcf_matrix[:, i_2, i_1] = tpcf_matrix[:, i_1, i_2]
+        else:
+            tpcf_matrix[:, i] += xi.ravel()
 
-            tpcf_shape = xi.shape
+        tpcf_shape = xi.shape
 
     return tpcf_matrix, tpcf_shape
+
+
+def _compute_tpcf_matrix(tpcf, mode, pos, period, tpcf_args, tpcf_kwargs,
+                         task_queue, result_queue, verbose=False):
+
+    if verbose:
+        pbar = tqdm.tqdm(total=task_queue.qsize(), smoothing=0)
+
+    while True:
+
+        try:
+            task = task_queue.get(timeout=0.1)
+        except Empty:
+            break
+
+        if mode == 'auto':
+            i_1, i_2 = task
+            if len(pos[i_1]) > len(pos[i_2]):
+                i_1, i_2 = i_2, i_1
+            result = tpcf(
+                pos[i_1], *tpcf_args, sample2=pos[i_2] if i_1 != i_2 else None,
+                do_auto=(i_1 == i_2), do_cross=(i_1 != i_2), period=period,
+                **tpcf_kwargs)
+        else:
+            result = tpcf(pos[task], *tpcf_args, period=period, **tpcf_kwargs)
+
+        result_queue.put((task, result))
+
+        if verbose:
+            pbar.update((pbar.total - task_queue.qsize()) - pbar.n)
