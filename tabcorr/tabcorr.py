@@ -2,7 +2,7 @@
 
 import itertools
 import multiprocessing
-from queue import Queue, Empty
+from queue import Empty, Queue
 from random import shuffle
 
 import h5py
