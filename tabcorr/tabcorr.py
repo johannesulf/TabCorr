@@ -851,7 +851,7 @@ def compute_tpcf_matrix(tpcf, mode, pos, period, tpcf_args, tpcf_kwargs,
     # Perform the computation.
     if n_jobs == 1:
         _compute_tpcf_matrix(*args, verbose=verbose)
-        results = [result_queue.get() for _ in result_queue.qsize()]
+        results = [result_queue.get() for _ in range(result_queue.qsize())]
     else:
         processes = [multiprocessing.Process(
             target=_compute_tpcf_matrix, args=args,
