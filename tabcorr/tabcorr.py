@@ -332,7 +332,7 @@ class TabCorr:
 
             if xyz == 'xyz':
                 tpcf_matrix, tpcf_shape = compute_tpcf_matrix(
-                    mode, pos, tpcf, period, tpcf_args, tpcf_kwargs,
+                    tpcf, mode, pos, period, tpcf_args, tpcf_kwargs,
                     n_jobs=n_jobs, verbose=verbose)
 
             if not project_xyz or mode == 'cross':
@@ -875,7 +875,6 @@ def compute_tpcf_matrix(tpcf, mode, pos, period, tpcf_args, tpcf_kwargs,
     tpcf_matrix = None
 
     for i, xi in results:
-        print(i, xi)
 
         if tpcf_matrix is None:
             if mode == 'auto':
