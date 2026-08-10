@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
-import tabcorr
-
 from scipy.interpolate import interp1d
+
+import tabcorr
 
 
 @pytest.mark.parametrize("tpcf", ["wp", "ds"])

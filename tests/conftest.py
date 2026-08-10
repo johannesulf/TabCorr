@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
-import tabcorr
-
 from halotools.empirical_models import PrebuiltHodModelFactory
+
+import tabcorr
 from scripts.tabulate_snapshot import read_simulation_snapshot
 
 SUITE = 'AbacusSummit'
@@ -12,7 +12,7 @@ COSMO = 0
 
 @pytest.fixture
 def halotab():
-    halotab = dict()
+    halotab = {}
     for tpcf in ["wp", "ds"]:
         halotab[tpcf] = tabcorr.database.read(
             SUITE, REDSHIFT, tpcf, tab_config='efficient', i_cosmo=COSMO)

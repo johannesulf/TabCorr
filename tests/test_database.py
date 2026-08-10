@@ -1,12 +1,11 @@
 import numpy as np
 import pytest
-import tabcorr
-
+from conftest import COSMO, REDSHIFT, SUITE
 from halotools.mock_observables import mean_delta_sigma as compute_ds
 from halotools.mock_observables import return_xyz_formatted_array
 from halotools.mock_observables import wp as compute_wp
 
-from conftest import SUITE, COSMO, REDSHIFT
+import tabcorr
 
 
 def test_number_density(halotab, model):
