@@ -1,11 +1,10 @@
 import numpy as np
 from halotools.custom_exceptions import HalotoolsError
 from halotools.empirical_models import PrebuiltHodModelFactory
-from halotools.mock_observables import return_xyz_formatted_array
+from halotools.mock_observables import return_xyz_formatted_array, wp
 from halotools.sim_manager import CachedHaloCatalog, DownloadManager
 
 from tabcorr import TabCorr
-from tabcorr.corrfunc import wp
 
 
 def test_tabulate():
@@ -20,12 +19,12 @@ def test_tabulate():
     except HalotoolsError:
         pass  # ignore if already exists
 
-    rp_bins = np.logspace(-1, 1, 20)
-    pi_max = 20
+    rp_bins = np.logspace(-1, 1, 10)
+    pi_max = 10
     halocat = CachedHaloCatalog(simname='consuelo')
     halotab = TabCorr.tabulate(
         halocat, wp, rp_bins, pi_max=pi_max, sats_per_prim_haloprop=1e-13,
-        prim_haloprop_bins=10, n_jobs=2)
+        prim_haloprop_bins=10, n_jobs=4)
 
     model = PrebuiltHodModelFactory('zheng07', threshold=-18)
     model.param_dict['logMmin'] = 0

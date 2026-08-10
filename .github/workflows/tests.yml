@@ -39,7 +39,6 @@ jobs:
         python -m pip install --upgrade pip
         python -m pip install ruff pytest
         python -m pip install .
-        python -m pip install corrfunc
     - name: Lint with ruff
       run: |
         ruff check tabcorr
