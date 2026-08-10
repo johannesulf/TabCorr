@@ -21,9 +21,11 @@ def test_tabulate():
         pass  # ignore if already exists
 
     rp_bins = np.logspace(-1, 1, 20)
+    pi_max = 20
     halocat = CachedHaloCatalog(simname='consuelo')
-    halotab = TabCorr.tabulate(halocat, wp, rp_bins, pi_max=20, verbose=True,
-                               n_jobs=2)
+    halotab = TabCorr.tabulate(
+        halocat, wp, rp_bins, pi_max=pi_max, sats_per_prim_haloprop=1e-13,
+        prim_haloprop_bins=10, n_jobs=2)
 
     model = PrebuiltHodModelFactory('zheng07', threshold=-18)
     model.param_dict['logMmin'] = 0
@@ -36,7 +38,7 @@ def test_tabulate():
         velocity=gals['vz'], velocity_distortion_dimension='z',
         cosmology=halocat.cosmology, redshift=halocat.redshift)
 
-    wp_ht = wp(pos, rp_bins, 20, period=halocat.Lbox)
+    wp_ht = wp(pos, rp_bins, pi_max, period=halocat.Lbox)
     wp_tc = halotab.predict(model)[1]
 
     assert np.allclose(wp_ht, wp_tc)
